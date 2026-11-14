@@ -56,6 +56,16 @@ Os atalhos globais são configuráveis na aba Configurações e aplicados sem re
 
 O parser em `TelaRec.Core.Input.HotkeyGesture` aceita combinações como `Ctrl+Alt+Shift+F9`. Se outro programa já usa a combinação, `RegisterHotKey` falha e o TelaRec mostra a mensagem de conflito no status e nos diagnósticos, mantendo o restante dos atalhos funcionando. O cabeçalho acompanha contêiner, codec, resolução e FPS selecionados (por exemplo, `MKV • H.264 • 1920×1080 • 30 FPS` ou `GIF • GIF • 1280×720 • 30 FPS`).
 
+## Interface, internacionalização e agendamento (P05)
+
+Todos os textos visíveis da interface estão nos recursos `Resources/Strings.resx` (padrão pt-BR), `Resources/Strings.pt-BR.resx` e `Resources/Strings.en-US.resx`, com paridade de chaves verificada por `ResourceParityTests`. A cultura da interface segue a cultura de interface do Windows/.NET. Mensagens dinâmicas usam parâmetros (`string.Format`/`Strings.FormatText`).
+
+A aba **Configurações** foi reorganizada em seções (Vídeo, Áudio, Sobreposições, Atalhos, Saída) dentro de `ScrollViewer`, com `ColumnDefinitions` reais, espaçamento consistente e largura mínima útil, mantendo o tema escuro. Campos inválidos são destacados e explicados via `INotifyDataErrorInfo`; a gravação não inicia e as configurações não são salvas enquanto houver erro. A pasta de saída é criada automaticamente ao salvar, quando possível.
+
+A aba **Diagnósticos** lista os últimos 20 eventos (timestamp, severidade, código, mensagem), com cores por severidade e botão **Limpar**. A mesma informação continua sendo registrada no log de arquivo. A aba **Agendamentos** lista cada agendamento com início, fim, estado (Pendente/Gravando/Concluído/Rejeitado/Falha), motivo de rejeição e botão **Cancelar**, assinando `RecordingScheduler.StatusChanged` na thread de interface.
+
+O comportamento de fechamento é configurável em **Fechar minimiza para a bandeja** (padrão ativo). Ao fechar, a janela é ocultada e o TelaRec continua na bandeja; o menu de contexto oferece **Abrir TelaRec** e **Sair**. Notificações (balão) são exibidas ao iniciar, pausar, concluir ou falhar a gravação. Qualquer atalho global acionado com a janela oculta restaura e ativa a janela antes de executar o comando.
+
 ## Confiabilidade
 
 Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. A recuperação na abertura seguinte existe para encerramentos abruptos (queda do processo ou desligamento): remove somente temporários partial.mp4 declarados no journal e no mesmo diretório do arquivo final; caminhos externos ou inválidos são preservados. Quando a própria gravação trata a falha, o temporário é apagado na hora e o journal não é reaproveitado.

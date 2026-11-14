@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,8 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, string> _appliedHotkeys = new();
     private NotifyIcon? _tray;
     private GlobalHotkeyService? _hotkeys;
+    private bool _allowClose;
+    private bool _trayHintShown;
 
     public MainWindow(MainWindowViewModel viewModel, ILogger<MainWindow> logger)
     {
@@ -34,7 +37,9 @@ public partial class MainWindow : Window
         };
         SourceInitialized += (_, _) => SetupShellIntegration();
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) Hide(); };
-        Closed += (_, _) => { _viewModel.HotkeysChanged -= OnHotkeysChanged; _tray?.Dispose(); _hotkeys?.Dispose(); };
+        Closing += OnClosing;
+        Closed += OnClosed;
+        _viewModel.NotificationRequested += OnNotificationRequested;
     }
 
     private void SetupShellIntegration()
@@ -44,14 +49,77 @@ public partial class MainWindow : Window
         _viewModel.HotkeysChanged += OnHotkeysChanged;
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(Strings.Get("Start"), null, (_, _) => _viewModel.ToggleRecordingCommand.Execute(null));
-        menu.Items.Add(Strings.Get("Pause"), null, (_, _) => _viewModel.TogglePauseCommand.Execute(null));
-        menu.Items.Add(Strings.Get("Stop"), null, (_, _) => _viewModel.StopRecordingCommand.Execute(null));
-        menu.Items.Add(Strings.Get("Screenshot"), null, (_, _) => _viewModel.ScreenshotCommand.Execute(null));
+        menu.Items.Add(Strings.TrayShow, null, (_, _) => RestoreWindow());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Sair", null, (_, _) => Close());
-        _tray = new NotifyIcon { Text = "TelaRec", Visible = true, ContextMenuStrip = menu, Icon = System.Drawing.SystemIcons.Application };
-        _tray.DoubleClick += (_, _) => { Show(); WindowState = WindowState.Normal; Activate(); };
+        menu.Items.Add(Strings.Start, null, (_, _) => _viewModel.ToggleRecordingCommand.Execute(null));
+        menu.Items.Add(Strings.Pause, null, (_, _) => _viewModel.TogglePauseCommand.Execute(null));
+        menu.Items.Add(Strings.Stop, null, (_, _) => _viewModel.StopRecordingCommand.Execute(null));
+        menu.Items.Add(Strings.Screenshot, null, (_, _) => _viewModel.ScreenshotCommand.Execute(null));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Strings.TrayExit, null, (_, _) => ExitApplication());
+
+        _tray = new NotifyIcon
+        {
+            Text = "TelaRec",
+            Visible = true,
+            ContextMenuStrip = menu,
+            Icon = System.Drawing.SystemIcons.Application
+        };
+        _tray.DoubleClick += (_, _) => RestoreWindow();
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_allowClose || !_viewModel.CloseToTray) return;
+
+        e.Cancel = true;
+        Hide();
+        if (_trayHintShown) return;
+        _trayHintShown = true;
+        ShowBalloon(Strings.AppTitle, Strings.TrayBalloonHint, ToolTipIcon.Info);
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        _viewModel.HotkeysChanged -= OnHotkeysChanged;
+        _viewModel.NotificationRequested -= OnNotificationRequested;
+        _tray?.Dispose();
+        _tray = null;
+        _hotkeys?.Dispose();
+        _hotkeys = null;
+    }
+
+    private void ExitApplication()
+    {
+        _allowClose = true;
+        Close();
+        System.Windows.Application.Current?.Shutdown();
+    }
+
+    /// <summary>Mostra e ativa a janela, inclusive quando estava oculta na bandeja.</summary>
+    private void RestoreWindow()
+    {
+        if (!IsVisible) Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    private void OnNotificationRequested(object? sender, NotificationMessage message)
+        => ShowBalloon(message.Title, message.Body, message.IsError ? ToolTipIcon.Error : ToolTipIcon.Info);
+
+    private void ShowBalloon(string title, string body, ToolTipIcon icon)
+    {
+        try
+        {
+            _tray?.ShowBalloonTip(3000, title, body, icon);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Falha ao exibir notificação da bandeja");
+        }
     }
 
     private void OnHotkeysChanged(object? sender, EventArgs e) => ApplyHotkeys();
@@ -95,6 +163,9 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
+            // Atalho acionado com a janela oculta na bandeja restaura a UI.
+            if (!IsVisible || WindowState == WindowState.Minimized) RestoreWindow();
+
             var command = id switch
             {
                 HotkeyToggleRecording => _viewModel.ToggleRecordingCommand,
@@ -115,18 +186,42 @@ public partial class MainWindow : Window
         var overlay = new RegionOverlayWindow(screen, dpi.DpiScaleX, dpi.DpiScaleY) { Owner = this };
         Hide();
         overlay.ShowDialog();
-        Show(); Activate();
+        Show();
+        Activate();
         if (overlay.Result is not null) _viewModel.SelectTarget(overlay.Result);
     }
+
     private void SelectWindow(object sender, RoutedEventArgs e)
     {
-        var windows = WindowEnumerator.GetVisibleWindows().Where(w => w.Handle != new System.Windows.Interop.WindowInteropHelper(this).Handle).ToList();
-        var list = new System.Windows.Controls.ListBox { ItemsSource = windows, DisplayMemberPath = nameof(DesktopWindow.Title), Margin = new Thickness(12) };
+        var windows = WindowEnumerator.GetVisibleWindows()
+            .Where(window => window.Handle != new System.Windows.Interop.WindowInteropHelper(this).Handle)
+            .ToList();
+        var list = new System.Windows.Controls.ListBox
+        {
+            ItemsSource = windows,
+            DisplayMemberPath = nameof(DesktopWindow.Title),
+            Margin = new Thickness(12)
+        };
         var panel = new System.Windows.Controls.DockPanel();
-        var button = new System.Windows.Controls.Button { Content = "Usar janela", Margin = new Thickness(12), Padding = new Thickness(12, 6, 12, 6), HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        var button = new System.Windows.Controls.Button
+        {
+            Content = Strings.UseWindow,
+            Margin = new Thickness(12),
+            Padding = new Thickness(12, 6, 12, 6),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right
+        };
         System.Windows.Controls.DockPanel.SetDock(button, System.Windows.Controls.Dock.Bottom);
-        panel.Children.Add(button); panel.Children.Add(list);
-        var dialog = new Window { Title = "Selecionar janela", Owner = this, Width = 480, Height = 380, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
+        panel.Children.Add(button);
+        panel.Children.Add(list);
+        var dialog = new Window
+        {
+            Title = Strings.SelectWindow,
+            Owner = this,
+            Width = 480,
+            Height = 380,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = panel
+        };
         button.Click += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         if (dialog.ShowDialog() == true && list.SelectedItem is DesktopWindow selected)

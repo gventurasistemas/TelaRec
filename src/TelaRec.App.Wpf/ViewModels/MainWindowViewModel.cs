@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -7,8 +9,8 @@ using System.Windows.Threading;
 using Microsoft.Extensions.Logging;
 using TelaRec.App.Wpf.Infrastructure;
 using TelaRec.App.Wpf.Resources;
-using TelaRec.Core.Configuration;
 using TelaRec.Core.Capture;
+using TelaRec.Core.Configuration;
 using TelaRec.Core.Contracts;
 using TelaRec.Core.Input;
 using TelaRec.Core.Recording;
@@ -17,8 +19,17 @@ using TelaRec.Core.Scheduling;
 
 namespace TelaRec.App.Wpf.ViewModels;
 
-public sealed class MainWindowViewModel : INotifyPropertyChanged
+public sealed record NotificationMessage(string Title, string Body, bool IsError);
+
+public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErrorInfo
 {
+    public const string CustomPresetId = "custom";
+    public const string CaptureModeFullScreen = "fullscreen";
+    public const string CaptureModeWindow = "window";
+    public const string CaptureModeRegion = "region";
+
+    private const int DiagnosticLimit = 20;
+
     private readonly ISettingsService _settingsService;
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly IRecordingService _recordingService;
@@ -26,11 +37,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly IRecordingDiagnostics _diagnostics;
     private readonly IRecordingAvailabilityProbe _availability;
     private readonly IScreenshotService _screenshotService;
+    private readonly Dictionary<Guid, ScheduledRecording> _scheduleRules = new();
+    private readonly Dictionary<string, List<string>> _errors = new();
     private TelaRecSettings _settings = new();
-    private string _statusMessage = Strings.Get("Ready");
+    private string _statusMessage = Strings.Ready;
     private string _outputDirectory = string.Empty;
     private string _recordingDuration = "00:00:00";
-    private string _captureMode = "Tela inteira";
+    private string _captureMode = CaptureModeFullScreen;
     private CaptureTarget? _selectedTarget;
     private readonly Stopwatch _durationClock = new();
     private readonly DispatcherTimer _durationTimer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -39,15 +52,60 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _diagnosticsText = string.Empty;
     private DateTime _scheduledStart = DateTime.Now.AddMinutes(5);
     private int _scheduledMinutes = 10;
-    private string _selectedPreset = RecordingPresets.All[0].Name;
+    private string _selectedPreset = RecordingPresets.All[0].Id;
     private bool _applyingPreset;
+    private RecordingState _lastNotifiedState = RecordingState.Idle;
 
-    public MainWindowViewModel(ISettingsService settingsService, IRecordingService recordingService, IRecordingScheduler scheduler, IRecordingDiagnostics diagnostics, IRecordingAvailabilityProbe availability, IScreenshotService screenshotService, ILogger<MainWindowViewModel> logger)
+    public MainWindowViewModel(
+        ISettingsService settingsService,
+        IRecordingService recordingService,
+        IRecordingScheduler scheduler,
+        IRecordingDiagnostics diagnostics,
+        IRecordingAvailabilityProbe availability,
+        IScreenshotService screenshotService,
+        ILogger<MainWindowViewModel> logger)
     {
         _settingsService = settingsService;
         _recordingService = recordingService;
-        _logger = logger; _scheduler = scheduler; _diagnostics = diagnostics; _availability = availability; _screenshotService = screenshotService;
-        PresetOptions = RecordingPresets.All.Select(preset => preset.Name).Append(Strings.CustomPreset).ToList();
+        _logger = logger;
+        _scheduler = scheduler;
+        _diagnostics = diagnostics;
+        _availability = availability;
+        _screenshotService = screenshotService;
+
+        PresetOptions = RecordingPresets.All
+            .Select(preset => new LocalizedOption(preset.Id, Strings.Get(preset.ResourceKey)))
+            .Append(new LocalizedOption(CustomPresetId, Strings.CustomPreset))
+            .ToList();
+        CaptureModeOptions =
+        [
+            new(CaptureModeFullScreen, Strings.CaptureFullScreen),
+            new(CaptureModeWindow, Strings.CaptureWindow),
+            new(CaptureModeRegion, Strings.CaptureRegion)
+        ];
+        QualityOptions =
+        [
+            new("Alta", Strings.QualityHigh),
+            new("Média", Strings.QualityMedium),
+            new("Baixa", Strings.QualityLow)
+        ];
+        PositionOptions =
+        [
+            new(nameof(OverlayPosition.BottomRight), Strings.PositionBottomRight),
+            new(nameof(OverlayPosition.BottomLeft), Strings.PositionBottomLeft),
+            new(nameof(OverlayPosition.TopRight), Strings.PositionTopRight),
+            new(nameof(OverlayPosition.TopLeft), Strings.PositionTopLeft)
+        ];
+
+        Diagnostics = new ObservableCollection<DiagnosticItem>();
+        Schedules = new ObservableCollection<ScheduledRecordingItem>();
+        Diagnostics.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasDiagnostics));
+            if (ClearDiagnosticsCommand is RelayCommand command) command.RaiseCanExecuteChanged();
+        };
+        Schedules.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSchedules));
+
         SaveSettingsCommand = new RelayCommand(async () => await SaveSettingsAsync());
         OpenOutputDirectoryCommand = new RelayCommand(OpenOutputDirectory, () => Directory.Exists(OutputDirectory));
         StartRecordingCommand = new RelayCommand(async () => await StartRecordingAsync(), () => _recordingService.Status.State is RecordingState.Idle or RecordingState.Completed or RecordingState.Failed);
@@ -60,34 +118,78 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             () => _recordingService.Status.State is not (RecordingState.Starting or RecordingState.Stopping));
         TogglePauseCommand = new RelayCommand(async () => await TogglePauseAsync(),
             () => _recordingService.Status.State is RecordingState.Recording or RecordingState.Paused);
-        _recordingService.StatusChanged += (_, status) => System.Windows.Application.Current.Dispatcher.BeginInvoke(() => UpdateRecordingStatus(status));
+        ClearDiagnosticsCommand = new RelayCommand(ClearDiagnostics, () => Diagnostics.Count > 0);
+
+        _recordingService.StatusChanged += (_, status) => InvokeOnUiThread(() => UpdateRecordingStatus(status));
         _durationTimer.Tick += (_, _) => UpdateLiveDuration();
-        _diagnostics.Reported += (_, diagnostic) => System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-            DiagnosticsText = $"{diagnostic.Timestamp:HH:mm:ss} — {diagnostic.Message}");
+        _diagnostics.Reported += (_, diagnostic) => InvokeOnUiThread(() => AddDiagnostic(diagnostic));
+        _scheduler.StatusChanged += (_, status) => InvokeOnUiThread(() => ApplyScheduledStatus(status));
     }
 
     /// <summary>Disparado após salvar configurações para reaplicar os atalhos globais.</summary>
     public event EventHandler? HotkeysChanged;
+    public event EventHandler<NotificationMessage>? NotificationRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<DataErrorsChangedEventArgs>? ErrorsChanged;
 
-    public IReadOnlyList<string> PresetOptions { get; }
+    public ObservableCollection<DiagnosticItem> Diagnostics { get; }
+    public ObservableCollection<ScheduledRecordingItem> Schedules { get; }
+    public bool HasDiagnostics => Diagnostics.Count > 0;
+    public bool HasSchedules => Schedules.Count > 0;
+
+    public IReadOnlyList<LocalizedOption> PresetOptions { get; }
+    public IReadOnlyList<LocalizedOption> CaptureModeOptions { get; }
+    public IReadOnlyList<LocalizedOption> QualityOptions { get; }
+    public IReadOnlyList<LocalizedOption> PositionOptions { get; }
+
     public string RecordingDuration { get => _recordingDuration; private set => SetField(ref _recordingDuration, value); }
     public RecordingState CurrentRecordingState => _recordingService.Status.State;
-    public string CaptureMode { get => _captureMode; set { if (SetField(ref _captureMode, value)) { _settings.LastCaptureMode = value; _selectedTarget = null; } } }
+
+    public string CaptureMode
+    {
+        get => _captureMode;
+        set
+        {
+            var normalized = NormalizeCaptureMode(value);
+            if (SetField(ref _captureMode, normalized))
+            {
+                _settings.LastCaptureMode = normalized;
+                _selectedTarget = null;
+            }
+        }
+    }
+
     public void SelectTarget(CaptureTarget target)
     {
-        CaptureMode = target switch { CaptureTarget.Window => "Janela selecionada", CaptureTarget.Region => "Região personalizada", _ => "Tela inteira" };
+        CaptureMode = target switch
+        {
+            CaptureTarget.Window => CaptureModeWindow,
+            CaptureTarget.Region => CaptureModeRegion,
+            _ => CaptureModeFullScreen
+        };
         _selectedTarget = target;
-        StatusMessage = target switch { CaptureTarget.Window window => $"Janela: {window.Title}", CaptureTarget.Region => "Região selecionada.", _ => "Tela inteira selecionada." };
+        StatusMessage = target switch
+        {
+            CaptureTarget.Window window => string.Format(Strings.WindowSelected, window.Title),
+            CaptureTarget.Region => Strings.RegionSelected,
+            _ => Strings.FullScreenSelected
+        };
     }
+
     public string StatusMessage { get => _statusMessage; private set => SetField(ref _statusMessage, value); }
     public string DiagnosticsText { get => _diagnosticsText; private set => SetField(ref _diagnosticsText, value); }
     public DateTime ScheduledStart { get => _scheduledStart; set => SetField(ref _scheduledStart, value); }
     public int ScheduledMinutes { get => _scheduledMinutes; set => SetField(ref _scheduledMinutes, value); }
+
     public string OutputDirectory
     {
         get => _outputDirectory;
-        set { if (SetField(ref _outputDirectory, value)) ((RelayCommand)OpenOutputDirectoryCommand).RaiseCanExecuteChanged(); }
+        set
+        {
+            if (!SetField(ref _outputDirectory, value)) return;
+            ((RelayCommand)OpenOutputDirectoryCommand).RaiseCanExecuteChanged();
+            ValidateOutputDirectory();
+        }
     }
 
     public string SelectedPreset
@@ -98,8 +200,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (!SetField(ref _selectedPreset, value)) return;
             _settings.SelectedPreset = value;
             if (_applyingPreset) return;
-            if (value == Strings.CustomPreset) return;
-            if (RecordingPresets.All.FirstOrDefault(preset => preset.Name == value) is { } selected)
+            if (value == CustomPresetId) return;
+            if (RecordingPresets.All.FirstOrDefault(preset => preset.Id == value) is { } selected)
                 ApplyPreset(selected);
         }
     }
@@ -113,6 +215,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _settings.FramesPerSecond = value;
             OnPropertyChanged();
             NotifyFormatSummary();
+            ValidateFramesPerSecond();
             if (_applyingPreset) return;
             RecalculateBitrate();
             MarkCustomPreset();
@@ -124,33 +227,45 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => _settings.SystemAudioEnabled;
         set { if (_settings.SystemAudioEnabled != value) { _settings.SystemAudioEnabled = value; OnPropertyChanged(); OnPropertyChanged(nameof(AudioStatusText)); } }
     }
+
     public bool ShowCursor
     {
         get => _settings.ShowCursor;
         set { if (_settings.ShowCursor != value) { _settings.ShowCursor = value; OnPropertyChanged(); } }
     }
+
     public bool ShowClickEffects
     {
         get => _settings.ShowClickEffects;
         set { if (_settings.ShowClickEffects != value) { _settings.ShowClickEffects = value; OnPropertyChanged(); } }
     }
-    public string AudioStatusText => SystemAudioEnabled ? "🔊 Áudio ligado" : "🔇 Áudio desligado";
+
+    public bool CloseToTray
+    {
+        get => _settings.CloseToTray;
+        set { if (_settings.CloseToTray != value) { _settings.CloseToTray = value; OnPropertyChanged(); } }
+    }
+
+    public string AudioStatusText => SystemAudioEnabled ? Strings.AudioOn : Strings.AudioOff;
+
     public string OutputFormat
     {
         get => _settings.RecordingContainer.ToString().ToUpperInvariant();
         set
         {
-            if (Enum.TryParse<RecordingContainer>(value, true, out var container))
-            {
-                _settings.RecordingContainer = container;
-                OnPropertyChanged();
-                NotifyFormatSummary();
-            }
+            if (!Enum.TryParse<RecordingContainer>(value, true, out var container)) return;
+            if (_settings.RecordingContainer == container) return;
+            _settings.RecordingContainer = container;
+            OnPropertyChanged();
+            NotifyFormatSummary();
+            ValidateResolution();
         }
     }
+
     /// <summary>Resumo do cabeçalho: contêiner, codec, resolução e FPS efetivos.</summary>
     public string FormatSummary =>
-        $"{OutputFormat} • {CodecSummary} • {_settings.OutputWidth}×{_settings.OutputHeight} • {_settings.FramesPerSecond} FPS";
+        $"{OutputFormat} • {CodecSummary} • {_settings.OutputWidth}×{_settings.OutputHeight} • {_settings.FramesPerSecond} {Strings.FpsLabel}";
+
     private string CodecSummary => _settings.RecordingContainer == RecordingContainer.Gif
         ? "GIF"
         : _settings.VideoCodec switch
@@ -160,6 +275,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             VideoCodec.Gif => "GIF",
             _ => _settings.VideoCodec.ToString().ToUpperInvariant()
         };
+
     public string OutputResolution
     {
         get => $"{_settings.OutputWidth}×{_settings.OutputHeight}";
@@ -168,14 +284,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var parts = value.Split('×', 'x', 'X');
             if (parts.Length != 2 || !int.TryParse(parts[0], out var width) || !int.TryParse(parts[1], out var height)) return;
             if (_settings.OutputWidth == width && _settings.OutputHeight == height) return;
-            _settings.OutputWidth = width; _settings.OutputHeight = height;
+            _settings.OutputWidth = width;
+            _settings.OutputHeight = height;
             OnPropertyChanged();
             NotifyFormatSummary();
+            ValidateResolution();
             if (_applyingPreset) return;
             RecalculateBitrate();
             MarkCustomPreset();
         }
     }
+
     public int VideoBitrate
     {
         get => _settings.VideoBitrate;
@@ -184,9 +303,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (_settings.VideoBitrate == value) return;
             _settings.VideoBitrate = value;
             OnPropertyChanged();
+            ValidateVideoBitrate();
             MarkCustomPreset();
         }
     }
+
     public string Quality
     {
         get => _settings.Quality;
@@ -200,21 +321,25 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             MarkCustomPreset();
         }
     }
+
     public string ToggleRecordingHotkey
     {
         get => _settings.ToggleRecordingHotkey;
-        set { if (_settings.ToggleRecordingHotkey != value) { _settings.ToggleRecordingHotkey = value; OnPropertyChanged(); } }
+        set { if (_settings.ToggleRecordingHotkey != value) { _settings.ToggleRecordingHotkey = value; OnPropertyChanged(); ValidateHotkeys(); } }
     }
+
     public string TogglePauseHotkey
     {
         get => _settings.TogglePauseHotkey;
-        set { if (_settings.TogglePauseHotkey != value) { _settings.TogglePauseHotkey = value; OnPropertyChanged(); } }
+        set { if (_settings.TogglePauseHotkey != value) { _settings.TogglePauseHotkey = value; OnPropertyChanged(); ValidateHotkeys(); } }
     }
+
     public string ScreenshotHotkey
     {
         get => _settings.ScreenshotHotkey;
-        set { if (_settings.ScreenshotHotkey != value) { _settings.ScreenshotHotkey = value; OnPropertyChanged(); } }
+        set { if (_settings.ScreenshotHotkey != value) { _settings.ScreenshotHotkey = value; OnPropertyChanged(); ValidateHotkeys(); } }
     }
+
     public bool WebcamEnabled { get => _settings.Webcam.Enabled; set { if (_settings.Webcam.Enabled != value) { _settings.Webcam = _settings.Webcam with { Enabled = value }; OnPropertyChanged(); } } }
     public int WebcamDeviceIndex { get => _settings.Webcam.DeviceIndex; set { if (_settings.Webcam.DeviceIndex != value) { _settings.Webcam = _settings.Webcam with { DeviceIndex = value }; OnPropertyChanged(); } } }
     public double WebcamScale { get => _settings.Webcam.Scale; set { _settings.Webcam = _settings.Webcam with { Scale = value }; OnPropertyChanged(); } }
@@ -225,6 +350,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string WatermarkPosition { get => _settings.Watermark.Position.ToString(); set { if (Enum.TryParse<OverlayPosition>(value, true, out var position)) { _settings.Watermark = _settings.Watermark with { Position = position }; OnPropertyChanged(); } } }
     public string WebcamPosition { get => _settings.Webcam.Position.ToString(); set { if (Enum.TryParse<OverlayPosition>(value, true, out var position)) { _settings.Webcam = _settings.Webcam with { Position = position }; OnPropertyChanged(); } } }
     public double WebcamOpacity { get => _settings.Webcam.Opacity; set { _settings.Webcam = _settings.Webcam with { Opacity = value }; OnPropertyChanged(); } }
+
     public ICommand SaveSettingsCommand { get; }
     public ICommand OpenOutputDirectoryCommand { get; }
     public ICommand StartRecordingCommand { get; }
@@ -235,10 +361,123 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ScreenshotCommand { get; }
     public ICommand ToggleRecordingCommand { get; }
     public ICommand TogglePauseCommand { get; }
+    public ICommand ClearDiagnosticsCommand { get; }
+
+    // --- Validação visível (INotifyDataErrorInfo) ---
+
+    public bool HasErrors => _errors.Values.Any(messages => messages.Count > 0);
+    public string ValidationSummaryText => HasErrors ? Strings.ValidationSummary : string.Empty;
+
+    public IEnumerable GetErrors(string? propertyName) =>
+        propertyName is not null && _errors.TryGetValue(propertyName, out var messages) ? messages : Array.Empty<string>();
+
+    private void SetErrors(string propertyName, IEnumerable<string> messages)
+    {
+        var list = messages.Where(message => !string.IsNullOrWhiteSpace(message)).Distinct().ToList();
+        if (list.Count == 0)
+        {
+            if (!_errors.Remove(propertyName)) return;
+        }
+        else
+        {
+            _errors[propertyName] = list;
+        }
+
+        ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(propertyName));
+        OnPropertyChanged(nameof(HasErrors));
+        OnPropertyChanged(nameof(ValidationSummaryText));
+    }
+
+    private void ValidateAll()
+    {
+        ValidateOutputDirectory();
+        ValidateFramesPerSecond();
+        ValidateVideoBitrate();
+        ValidateResolution();
+        ValidateHotkeys();
+    }
+
+    private void ValidateOutputDirectory()
+    {
+        var directory = OutputDirectory?.Trim() ?? string.Empty;
+        if (directory.Length == 0)
+        {
+            SetErrors(nameof(OutputDirectory), [Strings.ValidationOutputDirectoryEmpty]);
+            return;
+        }
+        if (!Path.IsPathFullyQualified(directory))
+        {
+            SetErrors(nameof(OutputDirectory), [Strings.ValidationOutputDirectoryNotAbsolute]);
+            return;
+        }
+        if (!Directory.Exists(directory))
+        {
+            SetErrors(nameof(OutputDirectory), [Strings.ValidationOutputDirectoryMissing]);
+            return;
+        }
+        SetErrors(nameof(OutputDirectory), []);
+    }
+
+    private void ValidateFramesPerSecond()
+    {
+        SetErrors(nameof(FramesPerSecond), _settings.FramesPerSecond is < SettingsValidator.MinimumFps or > SettingsValidator.MaximumFps
+            ? [string.Format(Strings.ValidationFpsOutOfRange, SettingsValidator.MinimumFps, SettingsValidator.MaximumFps)]
+            : []);
+    }
+
+    private void ValidateVideoBitrate()
+    {
+        SetErrors(nameof(VideoBitrate), _settings.VideoBitrate is < SettingsValidator.MinimumBitrate or > SettingsValidator.MaximumBitrate
+            ? [string.Format(Strings.ValidationBitrateOutOfRange, SettingsValidator.MinimumBitrate, SettingsValidator.MaximumBitrate)]
+            : []);
+    }
+
+    private void ValidateResolution()
+    {
+        string[] errors;
+        if (_settings.OutputWidth <= 0 || _settings.OutputHeight <= 0)
+            errors = [Strings.ValidationResolutionOutOfRange];
+        else if (_settings.RecordingContainer != RecordingContainer.Gif &&
+                 (_settings.OutputWidth % 2 != 0 || _settings.OutputHeight % 2 != 0))
+            errors = [Strings.ValidationResolutionMustBeEven];
+        else if (BuildProfile().IsValid)
+            errors = [];
+        else
+            errors = [Strings.ValidationProfileNotSupported];
+        SetErrors(nameof(OutputResolution), errors);
+    }
+
+    private void ValidateHotkeys()
+    {
+        var bindings = new[]
+        {
+            (Property: nameof(ToggleRecordingHotkey), Value: ToggleRecordingHotkey),
+            (Property: nameof(TogglePauseHotkey), Value: TogglePauseHotkey),
+            (Property: nameof(ScreenshotHotkey), Value: ScreenshotHotkey)
+        };
+
+        var parsed = new List<HotkeyGesture>(bindings.Length);
+        foreach (var binding in bindings)
+        {
+            if (!HotkeyGesture.TryParse(binding.Value, out var gesture))
+            {
+                SetErrors(binding.Property, [string.Format(Strings.ValidationHotkeyInvalid, binding.Value)]);
+                continue;
+            }
+            if (parsed.Contains(gesture))
+                SetErrors(binding.Property, [Strings.ValidationHotkeyDuplicate]);
+            else
+                SetErrors(binding.Property, []);
+            parsed.Add(gesture);
+        }
+    }
+
+    // --- Ciclo de vida ---
 
     public async Task LoadAsync()
     {
         _settings = await _settingsService.LoadAsync();
+        TryCreateOutputDirectory();
         OutputDirectory = _settings.OutputDirectory;
         _selectedPreset = ResolveSelectedPreset();
         OnPropertyChanged(nameof(FramesPerSecond));
@@ -246,6 +485,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(AudioStatusText));
         OnPropertyChanged(nameof(ShowCursor));
         OnPropertyChanged(nameof(ShowClickEffects));
+        OnPropertyChanged(nameof(CloseToTray));
         OnPropertyChanged(nameof(OutputFormat));
         OnPropertyChanged(nameof(OutputResolution));
         OnPropertyChanged(nameof(FormatSummary));
@@ -255,14 +495,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ToggleRecordingHotkey));
         OnPropertyChanged(nameof(TogglePauseHotkey));
         OnPropertyChanged(nameof(ScreenshotHotkey));
-        OnPropertyChanged(nameof(WebcamEnabled)); OnPropertyChanged(nameof(WebcamDeviceIndex)); OnPropertyChanged(nameof(WebcamScale));
-        OnPropertyChanged(nameof(WatermarkText)); OnPropertyChanged(nameof(WatermarkImagePath)); OnPropertyChanged(nameof(WatermarkOpacity)); OnPropertyChanged(nameof(WatermarkScale));
-        OnPropertyChanged(nameof(WatermarkPosition)); OnPropertyChanged(nameof(WebcamPosition)); OnPropertyChanged(nameof(WebcamOpacity));
-        // A janela/região escolhida não sobrevive ao reinício; volta para tela inteira
-        // em vez de deixar o botão Gravar em um estado impossível de usar.
-        CaptureMode = _settings.LastCaptureMode is "Janela selecionada" or "Região personalizada"
-            ? "Tela inteira"
-            : _settings.LastCaptureMode;
+        OnPropertyChanged(nameof(WebcamEnabled));
+        OnPropertyChanged(nameof(WebcamDeviceIndex));
+        OnPropertyChanged(nameof(WebcamScale));
+        OnPropertyChanged(nameof(WatermarkText));
+        OnPropertyChanged(nameof(WatermarkImagePath));
+        OnPropertyChanged(nameof(WatermarkOpacity));
+        OnPropertyChanged(nameof(WatermarkScale));
+        OnPropertyChanged(nameof(WatermarkPosition));
+        OnPropertyChanged(nameof(WebcamPosition));
+        OnPropertyChanged(nameof(WebcamOpacity));
+        var savedMode = NormalizeCaptureMode(_settings.LastCaptureMode);
+        CaptureMode = savedMode is CaptureModeWindow or CaptureModeRegion ? CaptureModeFullScreen : savedMode;
+        _settings.LastCaptureMode = CaptureMode;
+
+        foreach (var diagnostic in _diagnostics.Current) AddDiagnostic(diagnostic);
+
+        ValidateAll();
     }
 
     /// <summary>Aplica um preset e persiste a escolha na próxima gravação.</summary>
@@ -276,12 +525,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _settings.FramesPerSecond = preset.FramesPerSecond;
             _settings.Quality = preset.Quality;
             _settings.VideoBitrate = QualityBitrateCalculator.Suggest(preset.Quality, preset.Width, preset.Height, preset.FramesPerSecond);
-            _settings.SelectedPreset = preset.Name;
+            _settings.SelectedPreset = preset.Id;
             OnPropertyChanged(nameof(OutputResolution));
             OnPropertyChanged(nameof(FramesPerSecond));
             OnPropertyChanged(nameof(Quality));
             OnPropertyChanged(nameof(VideoBitrate));
             NotifyFormatSummary();
+            ValidateFramesPerSecond();
+            ValidateVideoBitrate();
+            ValidateResolution();
         }
         finally { _applyingPreset = false; }
     }
@@ -289,11 +541,28 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     internal async Task<bool> SaveSettingsAsync()
     {
         SyncSettingsFromView();
-        if (!ValidateHotkeys()) return false;
+        TryCreateOutputDirectory();
+        ValidateAll();
+        if (HasErrors)
+        {
+            StatusMessage = Strings.ValidationSummary;
+            _diagnostics.Report(DiagnosticSeverity.Warning, "settings.validation", FirstValidationError());
+            return false;
+        }
+
+        var issues = SettingsValidator.Validate(_settings);
+        if (issues.Count > 0)
+        {
+            var message = LocalizeValidationIssue(issues[0]);
+            StatusMessage = message;
+            _diagnostics.Report(DiagnosticSeverity.Warning, $"settings.{issues[0].Code}", message);
+            return false;
+        }
+
         try
         {
             await _settingsService.SaveAsync(_settings);
-            StatusMessage = Strings.Get("SettingsSaved");
+            StatusMessage = Strings.SettingsSaved;
             ((RelayCommand)OpenOutputDirectoryCommand).RaiseCanExecuteChanged();
             HotkeysChanged?.Invoke(this, EventArgs.Empty);
             return true;
@@ -301,36 +570,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         catch (Exception exception)
         {
             _logger.LogError(exception, "Falha ao salvar configurações");
-            StatusMessage = "Não foi possível salvar as configurações.";
+            StatusMessage = Strings.SettingsSaveFailed;
             return false;
         }
-    }
-
-    private bool ValidateHotkeys()
-    {
-        var bindings = new[]
-        {
-            (Label: Strings.ToggleRecordingHotkey, Value: ToggleRecordingHotkey),
-            (Label: Strings.TogglePauseHotkey, Value: TogglePauseHotkey),
-            (Label: Strings.ScreenshotHotkey, Value: ScreenshotHotkey)
-        };
-        var parsed = new List<HotkeyGesture>(bindings.Length);
-        foreach (var binding in bindings)
-        {
-            if (!HotkeyGesture.TryParse(binding.Value, out var gesture))
-            {
-                ReportHotkeyIssue(string.Format(Strings.HotkeyInvalid, binding.Value));
-                return false;
-            }
-            parsed.Add(gesture);
-        }
-
-        if (parsed.Distinct().Count() != parsed.Count)
-        {
-            ReportHotkeyIssue(Strings.HotkeyDuplicateConflict);
-            return false;
-        }
-        return true;
     }
 
     /// <summary>Exibe no status e nos diagnósticos um problema de atalho global.</summary>
@@ -364,9 +606,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var availability = _availability.Check();
             if (!availability.CanRecord)
             {
-                var reason = string.IsNullOrWhiteSpace(availability.Reason)
-                    ? "A captura de tela não está disponível."
-                    : availability.Reason;
+                var reason = LocalizeAvailability(availability);
                 StatusMessage = reason;
                 _diagnostics.Report(DiagnosticSeverity.Warning, "recording.unavailable", reason);
                 return;
@@ -374,7 +614,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
             await _recordingService.StartAsync(CreateRequest());
         }
-        catch (Exception exception) { _logger.LogError(exception, "Falha ao iniciar a gravação"); StatusMessage = exception.Message; }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Falha ao iniciar a gravação");
+            StatusMessage = string.Format(Strings.RecordingFailed, exception.Message);
+        }
     }
 
     /// <summary>Atalho Ctrl+Alt+R: inicia quando parado e para quando gravando/pausado.</summary>
@@ -438,43 +682,140 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private bool EnsureSettingsValid()
     {
-        var issues = SettingsValidator.Validate(_settings);
-        if (issues.Count == 0) return true;
-        var issue = issues[0];
-        StatusMessage = issue.Message;
-        _diagnostics.Report(DiagnosticSeverity.Warning, $"settings.{issue.Code}", issue.Message);
+        ValidateAll();
+        if (!HasErrors) return true;
+        var message = FirstValidationError();
+        StatusMessage = Strings.ValidationSummary;
+        _diagnostics.Report(DiagnosticSeverity.Warning, "settings.validation", message);
         return false;
     }
-    private async Task ScheduleRecordingAsync()
+
+    internal async Task ScheduleRecordingAsync()
     {
         try
         {
             SyncSettingsFromView();
             if (!EnsureSettingsValid()) return;
+
+            if (ScheduledMinutes <= 0 || ScheduledStart <= DateTime.Now)
+            {
+                StatusMessage = Strings.ScheduleMissingTimes;
+                return;
+            }
+
             if (!await SaveSettingsAsync()) return;
-            var request = CreateRequest();
+
             var start = new DateTimeOffset(ScheduledStart);
-            await _scheduler.ScheduleAsync(new ScheduledRecording(Guid.NewGuid(), start, start.AddMinutes(ScheduledMinutes), request));
-            DiagnosticsText = $"Gravação agendada para {start:dd/MM HH:mm}.";
+            var schedule = new ScheduledRecording(Guid.NewGuid(), start, start.AddMinutes(ScheduledMinutes), CreateRequest());
+            _scheduleRules[schedule.Id] = schedule;
+            try
+            {
+                await _scheduler.ScheduleAsync(schedule);
+                StatusMessage = string.Format(Strings.ScheduleCreated, schedule.StartsAt.LocalDateTime);
+            }
+            catch (InvalidOperationException)
+            {
+                _scheduleRules.Remove(schedule.Id);
+                StatusMessage = Strings.ScheduleConflict;
+                _diagnostics.Report(DiagnosticSeverity.Warning, "schedule.conflict", Strings.ScheduleConflict);
+            }
+            catch (ArgumentException)
+            {
+                _scheduleRules.Remove(schedule.Id);
+                StatusMessage = Strings.ScheduleMissingTimes;
+            }
+            catch (Exception exception)
+            {
+                _scheduleRules.Remove(schedule.Id);
+                _logger.LogWarning(exception, "Não foi possível agendar gravação");
+                StatusMessage = string.Format(Strings.ScheduleCreateFailed, exception.Message);
+            }
         }
-        catch (Exception exception) { _logger.LogWarning(exception, "Não foi possível agendar gravação"); DiagnosticsText = exception.Message; }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Não foi possível agendar gravação");
+            StatusMessage = string.Format(Strings.ScheduleCreateFailed, exception.Message);
+        }
     }
+
+    internal async Task CancelScheduleAsync(Guid scheduleId)
+    {
+        try
+        {
+            await _scheduler.CancelAsync(scheduleId);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Falha ao cancelar agendamento {ScheduleId}", scheduleId);
+        }
+        finally
+        {
+            _scheduleRules.Remove(scheduleId);
+            var item = Schedules.FirstOrDefault(schedule => schedule.Id == scheduleId);
+            if (item is not null) Schedules.Remove(item);
+            StatusMessage = Strings.ScheduleCancelled;
+        }
+    }
+
+    private void ApplyScheduledStatus(ScheduledRecordingStatus status)
+    {
+        var existing = Schedules.FirstOrDefault(schedule => schedule.Id == status.Id);
+        if (existing is not null)
+        {
+            existing.Update(status);
+            return;
+        }
+
+        if (!_scheduleRules.TryGetValue(status.Id, out var rule)) return;
+        Schedules.Add(new ScheduledRecordingItem(rule, status, id => _ = CancelScheduleAsync(id)));
+    }
+
+    private void ClearDiagnostics()
+    {
+        Diagnostics.Clear();
+        DiagnosticsText = string.Empty;
+    }
+
+    private void AddDiagnostic(RecordingDiagnostic diagnostic)
+    {
+        if (Diagnostics.Any(item => item.Timestamp == diagnostic.Timestamp && item.Code == diagnostic.Code && item.Message == diagnostic.Message))
+            return;
+
+        Diagnostics.Insert(0, new DiagnosticItem(diagnostic.Timestamp, diagnostic.Severity, diagnostic.Code, diagnostic.Message));
+        while (Diagnostics.Count > DiagnosticLimit) Diagnostics.RemoveAt(Diagnostics.Count - 1);
+        DiagnosticsText = $"{diagnostic.Timestamp:HH:mm:ss} — {diagnostic.Message}";
+    }
+
+    private RecordingProfile BuildProfile() => new(
+        _settings.RecordingContainer,
+        _settings.RecordingContainer == RecordingContainer.Gif ? VideoCodec.Gif : _settings.VideoCodec,
+        _settings.VideoBitrate,
+        _settings.FramesPerSecond,
+        _settings.OutputWidth,
+        _settings.OutputHeight);
+
     private RecordingRequest CreateRequest()
     {
-        var profile = new RecordingProfile(_settings.RecordingContainer,
-            _settings.RecordingContainer == RecordingContainer.Gif ? VideoCodec.Gif : _settings.VideoCodec,
-            VideoBitrate, FramesPerSecond, _settings.OutputWidth, _settings.OutputHeight);
-        if (!profile.IsValid) throw new InvalidOperationException("Formato, resolução ou bitrate inválidos.");
+        var profile = BuildProfile();
+        if (!profile.IsValid) throw new InvalidOperationException(Strings.ValidationProfileNotSupported);
         var name = $"TelaRec_{DateTime.Now:yyyyMMdd_HHmmss}{profile.FileExtension}";
         CaptureTarget target = CaptureMode switch
         {
-            "Tela inteira" => new CaptureTarget.Display(),
-            "Janela selecionada" when _selectedTarget is CaptureTarget.Window window => window,
-            "Região personalizada" when _selectedTarget is CaptureTarget.Region region => region,
-            _ => throw new InvalidOperationException("Selecione a janela ou região antes de gravar.")
+            CaptureModeFullScreen => new CaptureTarget.Display(),
+            CaptureModeWindow when _selectedTarget is CaptureTarget.Window window => window,
+            CaptureModeRegion when _selectedTarget is CaptureTarget.Region region => region,
+            _ => throw new InvalidOperationException(Strings.ValidationProfileNotSupported)
         };
-        return new RecordingRequest(Path.Combine(OutputDirectory, name), FramesPerSecond, SystemAudioEnabled, target, profile, new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam, BuildClickEffects()), _settings.ShowCursor);
+        return new RecordingRequest(
+            Path.Combine(OutputDirectory, name),
+            FramesPerSecond,
+            SystemAudioEnabled,
+            target,
+            profile,
+            new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam, BuildClickEffects()),
+            _settings.ShowCursor);
     }
+
     private ClickEffectSettings BuildClickEffects() => _settings.ShowClickEffects
         ? new ClickEffectSettings(
             Enabled: true,
@@ -482,14 +823,20 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             DurationSeconds: _settings.ClickEffectDurationSeconds,
             Color: _settings.ClickEffectColor)
         : ClickEffectSettings.None;
+
     private async Task PauseRecordingAsync() { try { await _recordingService.PauseAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao pausar"); } }
     private async Task ResumeRecordingAsync() { try { await _recordingService.ResumeAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao retomar"); } }
     private async Task StopRecordingAsync() { try { await _recordingService.StopAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao parar"); } }
+
     private void UpdateRecordingStatus(RecordingStatus status)
     {
         if (status.State == RecordingState.Starting)
         {
-            _durationTimer.Stop(); _durationClock.Reset(); _durationBeforeCurrent = TimeSpan.Zero; _audioWarning = null;
+            _durationTimer.Stop();
+            _durationClock.Reset();
+            _durationBeforeCurrent = TimeSpan.Zero;
+            _audioWarning = null;
+            _lastNotifiedState = RecordingState.Starting;
             RecordingDuration = "00:00:00";
         }
         if (status.State == RecordingState.Recording)
@@ -501,24 +848,46 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (status.State is RecordingState.Paused or RecordingState.Stopping or RecordingState.Completed or RecordingState.Failed)
         {
             _durationBeforeCurrent += _durationClock.Elapsed;
-            _durationClock.Reset(); _durationTimer.Stop();
+            _durationClock.Reset();
+            _durationTimer.Stop();
             RecordingDuration = _durationBeforeCurrent.ToString(@"hh\:mm\:ss");
         }
+
         StatusMessage = status.State switch
         {
-            RecordingState.Recording => $"Gravando — {status.Elapsed:mm\\:ss}",
-            RecordingState.Paused => Strings.Get("RecordingPaused"),
-            RecordingState.Completed => Strings.Get("RecordingComplete"),
-            RecordingState.Failed => $"Falha: {status.ErrorMessage}",
-            _ => status.State.ToString()
+            RecordingState.Recording => string.Format(Strings.RecordingInProgress, status.Elapsed.ToString(@"mm\:ss")),
+            RecordingState.Paused => Strings.RecordingPaused,
+            RecordingState.Completed => Strings.RecordingComplete,
+            RecordingState.Failed => string.Format(Strings.RecordingFailed, status.ErrorMessage),
+            _ => Strings.Ready
         };
+
+        NotifyState(status);
         if (status.State == RecordingState.Recording) UpdateLiveDuration();
-        foreach (var command in new[] { StartRecordingCommand, PauseRecordingCommand, ResumeRecordingCommand, StopRecordingCommand, ToggleRecordingCommand, TogglePauseCommand }) ((RelayCommand)command).RaiseCanExecuteChanged();
+        foreach (var command in new[] { StartRecordingCommand, PauseRecordingCommand, ResumeRecordingCommand, StopRecordingCommand, ToggleRecordingCommand, TogglePauseCommand })
+            ((RelayCommand)command).RaiseCanExecuteChanged();
     }
+
+    private void NotifyState(RecordingStatus status)
+    {
+        if (_lastNotifiedState == status.State) return;
+        _lastNotifiedState = status.State;
+        NotificationMessage? message = status.State switch
+        {
+            RecordingState.Recording => new(Strings.NotificationStartedTitle, Strings.NotificationStartedBody, false),
+            RecordingState.Paused => new(Strings.NotificationPausedTitle, Strings.NotificationPausedBody, false),
+            RecordingState.Completed => new(Strings.NotificationCompletedTitle, Strings.NotificationCompletedBody, false),
+            RecordingState.Failed => new(Strings.NotificationErrorTitle,
+                string.Format(Strings.NotificationErrorBody, status.ErrorMessage ?? string.Empty), true),
+            _ => null
+        };
+        if (message is not null) NotificationRequested?.Invoke(this, message);
+    }
+
     private void UpdateLiveDuration()
     {
         RecordingDuration = (_durationBeforeCurrent + _durationClock.Elapsed).ToString(@"hh\:mm\:ss");
-        StatusMessage = _audioWarning ?? $"Gravando — {RecordingDuration}";
+        StatusMessage = _audioWarning ?? string.Format(Strings.RecordingInProgress, RecordingDuration);
     }
 
     private void RecalculateBitrate()
@@ -527,30 +896,92 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (_settings.VideoBitrate == suggested) return;
         _settings.VideoBitrate = suggested;
         OnPropertyChanged(nameof(VideoBitrate));
+        ValidateVideoBitrate();
     }
 
     private void MarkCustomPreset()
     {
         if (_applyingPreset) return;
-        _settings.SelectedPreset = Strings.CustomPreset;
-        if (_selectedPreset == Strings.CustomPreset) return;
-        _selectedPreset = Strings.CustomPreset;
+        _settings.SelectedPreset = CustomPresetId;
+        if (_selectedPreset == CustomPresetId) return;
+        _selectedPreset = CustomPresetId;
         OnPropertyChanged(nameof(SelectedPreset));
     }
 
     private string ResolveSelectedPreset()
     {
+        var configured = NormalizePresetId(_settings.SelectedPreset);
         if (RecordingPresets.All.FirstOrDefault(preset =>
-                preset.Name == _settings.SelectedPreset &&
+                preset.Id == configured &&
                 preset.Width == _settings.OutputWidth &&
                 preset.Height == _settings.OutputHeight &&
                 preset.FramesPerSecond == _settings.FramesPerSecond &&
                 string.Equals(preset.Quality, _settings.Quality, StringComparison.OrdinalIgnoreCase)) is { } match)
-            return match.Name;
-        return Strings.CustomPreset;
+            return match.Id;
+        return CustomPresetId;
     }
 
+    private static string NormalizePresetId(string? value) => value switch
+    {
+        "Tutorial 1080p" => "tutorial-1080p",
+        "Leve 720p" => "light-720p",
+        "Alta qualidade 60 FPS" => "high-quality-60",
+        "Personalizado" or "Custom" => CustomPresetId,
+        _ => value ?? CustomPresetId
+    };
+
+    private static string NormalizeCaptureMode(string? value) => value switch
+    {
+        "Tela inteira" or "Full screen" => CaptureModeFullScreen,
+        "Janela selecionada" or "Selected window" or CaptureModeWindow => CaptureModeWindow,
+        "Região personalizada" or "Custom region" or CaptureModeRegion => CaptureModeRegion,
+        _ => CaptureModeFullScreen
+    };
+
+    private void TryCreateOutputDirectory()
+    {
+        var directory = _settings.OutputDirectory;
+        if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory)) return;
+        try { Directory.CreateDirectory(directory); }
+        catch (Exception) { /* A validação visível informa o problema ao usuário. */ }
+    }
+
+    private string FirstValidationError() =>
+        _errors.Values.FirstOrDefault(messages => messages.Count > 0)?.FirstOrDefault() ?? Strings.ValidationSummary;
+
+    private static string LocalizeAvailability(RecordingAvailability availability) => availability.ReasonCode switch
+    {
+        RecordingUnavailableReason.CaptureUnsupported => Strings.CaptureUnsupported,
+        RecordingUnavailableReason.DesktopLocked => string.IsNullOrWhiteSpace(availability.Reason) ? Strings.DesktopLocked : availability.Reason!,
+        RecordingUnavailableReason.DeviceUnavailable => Strings.DeviceUnavailable,
+        _ => string.IsNullOrWhiteSpace(availability.Reason) ? Strings.CaptureUnavailable : availability.Reason
+    };
+
+    private static string LocalizeValidationIssue(SettingsValidationIssue issue) => issue.Code switch
+    {
+        SettingsValidationCode.OutputDirectoryEmpty => Strings.ValidationOutputDirectoryEmpty,
+        SettingsValidationCode.OutputDirectoryNotAbsolute => Strings.ValidationOutputDirectoryNotAbsolute,
+        SettingsValidationCode.OutputDirectoryUnavailable => Strings.ValidationOutputDirectoryUnavailable,
+        SettingsValidationCode.FramesPerSecondOutOfRange => string.Format(Strings.ValidationFpsOutOfRange, SettingsValidator.MinimumFps, SettingsValidator.MaximumFps),
+        SettingsValidationCode.VideoBitrateOutOfRange => string.Format(Strings.ValidationBitrateOutOfRange, SettingsValidator.MinimumBitrate, SettingsValidator.MaximumBitrate),
+        SettingsValidationCode.ResolutionOutOfRange => Strings.ValidationResolutionOutOfRange,
+        SettingsValidationCode.ResolutionMustBeEven => Strings.ValidationResolutionMustBeEven,
+        SettingsValidationCode.ProfileNotSupported => Strings.ValidationProfileNotSupported,
+        _ => Strings.ValidationSummary
+    };
+
     private void NotifyFormatSummary() => OnPropertyChanged(nameof(FormatSummary));
+
+    private static void InvokeOnUiThread(Action action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        dispatcher.BeginInvoke(action);
+    }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
