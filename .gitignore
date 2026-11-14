@@ -1,0 +1,104 @@
+# ==============================
+# TelaRec - .NET 8 / WPF / Visual Studio 2026
+# ==============================
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.rsuser
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Build (bin/obj em todos os projetos)
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+*.exe
+*.pdb
+*.mdb
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp_proj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Testes
+[Tt]est[Rr]esult*/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.info
+*.received.*
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+.nuget/
+project.lock.json
+*.nuget.props
+*.nuget.targets
+
+# Ferramentas locais (não versionar binários)
+tools/ffmpeg.exe
+tools/ffprobe.exe
+tools/ffplay.exe
+
+# Artefatos de gravação do TelaRec
+*.partial.mp4
+TelaRec_*.mp4
+TelaRec_*.mkv
+TelaRec_*.mov
+TelaRec_*.gif
+TelaRec_*.png
+
+# Outros IDEs
+.idea/
+*.sln.iml
+.vscode/
+
+# Sistema operacional
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Arquivos temporários/backup
+*.bak
+*.tmp
+~$*
+*.swp
+*.orig

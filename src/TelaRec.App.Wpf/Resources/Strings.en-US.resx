@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="AppTitle"><value>TelaRec</value></data><data name="ScreenRecorder"><value>Screen recorder</value></data>
+  <data name="Recording"><value>Recording</value></data><data name="Settings"><value>Settings</value></data>
+  <data name="Start"><value>Record</value></data><data name="Pause"><value>Pause</value></data><data name="Resume"><value>Resume</value></data><data name="Stop"><value>Stop</value></data>
+  <data name="OpenFolder"><value>Open folder</value></data><data name="SaveSettings"><value>Save settings</value></data>
+  <data name="OutputFolder"><value>Output folder</value></data><data name="Audio"><value>Audio</value></data><data name="Capture"><value>Capture</value></data>
+  <data name="Watermark"><value>Watermark</value></data><data name="Webcam"><value>Webcam</value></data><data name="Enabled"><value>Enable</value></data>
+  <data name="WatermarkText"><value>Watermark text</value></data><data name="WatermarkImage"><value>Watermark PNG</value></data>
+  <data name="Position"><value>Position</value></data><data name="Opacity"><value>Opacity</value></data><data name="Scale"><value>Scale</value></data>
+  <data name="Ready"><value>Ready to record the main screen.</value></data><data name="RecordingComplete"><value>Recording completed.</value></data><data name="RecordingPaused"><value>Recording paused.</value></data>
+</root>
