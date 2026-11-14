@@ -226,7 +226,7 @@
                                 <StackPanel Grid.Column="1">
                                     <TextBox x:Name="OutputDirectoryBox" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" />
                                     <TextBlock Style="{StaticResource ErrorText}"
-                                               Text="{Binding ElementName=OutputDirectoryBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                               Text="{Binding ElementName=OutputDirectoryBox, Path=(Validation.Errors)/ErrorContent}" />
                                 </StackPanel>
 
                                 <TextBlock Grid.Row="1" Text="{resources:Loc Key=Preset}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
@@ -239,7 +239,7 @@
                                     <TextBox x:Name="FpsBox" Width="120" HorizontalAlignment="Left"
                                              Text="{Binding FramesPerSecond, UpdateSourceTrigger=LostFocus}" />
                                     <TextBlock Style="{StaticResource ErrorText}"
-                                               Text="{Binding ElementName=FpsBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                               Text="{Binding ElementName=FpsBox, Path=(Validation.Errors)/ErrorContent}" />
                                 </StackPanel>
 
                                 <TextBlock Grid.Row="3" Text="{resources:Loc Key=Capture}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
@@ -328,14 +328,14 @@
                                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,14,0,0">
                                         <TextBox x:Name="ResolutionBox" Text="{Binding OutputResolution, UpdateSourceTrigger=LostFocus}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=ResolutionBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=ResolutionBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="2" Text="{resources:Loc Key=Bitrate}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
                                     <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,14,0,0">
                                         <TextBox x:Name="BitrateBox" Text="{Binding VideoBitrate, UpdateSourceTrigger=LostFocus}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=BitrateBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=BitrateBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="3" Text="{resources:Loc Key=Quality}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
@@ -479,21 +479,21 @@
                                     <StackPanel Grid.Column="1">
                                         <TextBox x:Name="RecordHotkeyBox" Text="{Binding ToggleRecordingHotkey, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=RecordHotkeyBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=RecordHotkeyBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="1" Text="{resources:Loc Key=TogglePauseHotkey}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
                                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,14,0,0">
                                         <TextBox x:Name="PauseHotkeyBox" Text="{Binding TogglePauseHotkey, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=PauseHotkeyBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=PauseHotkeyBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="2" Text="{resources:Loc Key=ScreenshotHotkey}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
                                     <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,14,0,0">
                                         <TextBox x:Name="ScreenshotHotkeyBox" Text="{Binding ScreenshotHotkey, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=ScreenshotHotkeyBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=ScreenshotHotkeyBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>
@@ -518,7 +518,7 @@
                                     <StackPanel Grid.Column="1">
                                         <TextBox x:Name="OutputDirectorySettingsBox" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource ErrorText}"
-                                                   Text="{Binding ElementName=OutputDirectorySettingsBox, Path=(Validation.Errors)[0].ErrorContent}" />
+                                                   Text="{Binding ElementName=OutputDirectorySettingsBox, Path=(Validation.Errors)/ErrorContent}" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="1" Text="{resources:Loc Key=SectionWindow}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
