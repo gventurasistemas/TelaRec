@@ -23,6 +23,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly IRecordingService _recordingService;
     private readonly IRecordingScheduler _scheduler;
     private readonly IRecordingDiagnostics _diagnostics;
+    private readonly IRecordingAvailabilityProbe _availability;
     private TelaRecSettings _settings = new();
     private string _statusMessage = Strings.Get("Ready");
     private string _outputDirectory = string.Empty;
@@ -37,11 +38,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private DateTime _scheduledStart = DateTime.Now.AddMinutes(5);
     private int _scheduledMinutes = 10;
 
-    public MainWindowViewModel(ISettingsService settingsService, IRecordingService recordingService, IRecordingScheduler scheduler, IRecordingDiagnostics diagnostics, ILogger<MainWindowViewModel> logger)
+    public MainWindowViewModel(ISettingsService settingsService, IRecordingService recordingService, IRecordingScheduler scheduler, IRecordingDiagnostics diagnostics, IRecordingAvailabilityProbe availability, ILogger<MainWindowViewModel> logger)
     {
         _settingsService = settingsService;
         _recordingService = recordingService;
-        _logger = logger; _scheduler = scheduler; _diagnostics = diagnostics;
+        _logger = logger; _scheduler = scheduler; _diagnostics = diagnostics; _availability = availability;
         SaveSettingsCommand = new RelayCommand(async () => await SaveSettingsAsync());
         OpenOutputDirectoryCommand = new RelayCommand(OpenOutputDirectory, () => Directory.Exists(OutputDirectory));
         StartRecordingCommand = new RelayCommand(async () => await StartRecordingAsync(), () => _recordingService.Status.State is RecordingState.Idle or RecordingState.Completed or RecordingState.Failed);
@@ -143,21 +144,28 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         CaptureMode = _settings.LastCaptureMode;
     }
 
-    private async Task SaveSettingsAsync()
+    private async Task<bool> SaveSettingsAsync()
     {
+        SyncSettingsFromView();
         try
         {
-            _settings.OutputDirectory = OutputDirectory.Trim();
-            _settings.LastCaptureMode = CaptureMode;
             await _settingsService.SaveAsync(_settings);
             StatusMessage = "Configurações salvas.";
             ((RelayCommand)OpenOutputDirectoryCommand).RaiseCanExecuteChanged();
+            return true;
         }
         catch (Exception exception)
         {
             _logger.LogError(exception, "Falha ao salvar configurações");
             StatusMessage = "Não foi possível salvar as configurações.";
+            return false;
         }
+    }
+
+    private void SyncSettingsFromView()
+    {
+        _settings.OutputDirectory = OutputDirectory.Trim();
+        _settings.LastCaptureMode = CaptureMode;
     }
 
     private void OpenOutputDirectory()
@@ -165,33 +173,45 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (Directory.Exists(OutputDirectory)) Process.Start(new ProcessStartInfo(OutputDirectory) { UseShellExecute = true });
     }
 
-    private async Task StartRecordingAsync()
+    internal async Task StartRecordingAsync()
     {
         try
         {
-            await SaveSettingsAsync();
-            var profile = new RecordingProfile(_settings.RecordingContainer,
-                _settings.RecordingContainer == RecordingContainer.Gif ? VideoCodec.Gif : _settings.VideoCodec,
-                VideoBitrate, FramesPerSecond, _settings.OutputWidth, _settings.OutputHeight);
-            if (!profile.IsValid) throw new InvalidOperationException("Formato, resolução ou bitrate inválidos.");
-            var name = $"TelaRec_{DateTime.Now:yyyyMMdd_HHmmss}{profile.FileExtension}";
-            CaptureTarget target = CaptureMode switch
+            SyncSettingsFromView();
+            if (!EnsureSettingsValid()) return;
+            if (!await SaveSettingsAsync()) return;
+
+            var availability = _availability.Check();
+            if (!availability.CanRecord)
             {
-                "Tela inteira" => new CaptureTarget.Display(),
-                "Janela selecionada" when _selectedTarget is CaptureTarget.Window window => window,
-                "Região personalizada" when _selectedTarget is CaptureTarget.Region region => region,
-                _ => throw new InvalidOperationException("Selecione a janela ou região antes de gravar.")
-            };
-            var overlays = new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam);
-            await _recordingService.StartAsync(new RecordingRequest(Path.Combine(OutputDirectory, name), FramesPerSecond, SystemAudioEnabled, target, profile, overlays));
+                var reason = string.IsNullOrWhiteSpace(availability.Reason)
+                    ? "A captura de tela não está disponível."
+                    : availability.Reason;
+                StatusMessage = reason;
+                _diagnostics.Report(DiagnosticSeverity.Warning, "recording.unavailable", reason);
+                return;
+            }
+
+            await _recordingService.StartAsync(CreateRequest());
         }
         catch (Exception exception) { _logger.LogError(exception, "Falha ao iniciar a gravação"); StatusMessage = exception.Message; }
+    }
+    private bool EnsureSettingsValid()
+    {
+        var issues = SettingsValidator.Validate(_settings);
+        if (issues.Count == 0) return true;
+        var issue = issues[0];
+        StatusMessage = issue.Message;
+        _diagnostics.Report(DiagnosticSeverity.Warning, $"settings.{issue.Code}", issue.Message);
+        return false;
     }
     private async Task ScheduleRecordingAsync()
     {
         try
         {
-            await SaveSettingsAsync();
+            SyncSettingsFromView();
+            if (!EnsureSettingsValid()) return;
+            if (!await SaveSettingsAsync()) return;
             var request = CreateRequest();
             var start = new DateTimeOffset(ScheduledStart);
             await _scheduler.ScheduleAsync(new ScheduledRecording(Guid.NewGuid(), start, start.AddMinutes(ScheduledMinutes), request));

@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -19,9 +20,11 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\TelaRec.App.Wpf\TelaRec.App.Wpf.csproj" />
     <ProjectReference Include="..\..\src\TelaRec.Core\TelaRec.Core.csproj" />
     <ProjectReference Include="..\..\src\TelaRec.Infrastructure\TelaRec.Infrastructure.csproj" />
   </ItemGroup>
