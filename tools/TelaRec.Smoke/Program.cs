@@ -12,7 +12,8 @@ await using var recorder = new RecordingService(
     new MediaFoundationVideoEncoderService(new TestLogger<MediaFoundationVideoEncoderService>()),
     new WasapiLoopbackAudioCaptureService(new TestLogger<WasapiLoopbackAudioCaptureService>()),
     new TestLogger<RecordingService>(),
-    new RecordingExporterFactory([new FfmpegRecordingExporter(new TestLogger<FfmpegRecordingExporter>())]));
+    new RecordingExporterFactory([new FfmpegRecordingExporter(new TestLogger<FfmpegRecordingExporter>())]),
+    clickCapture: new WindowsClickCaptureService(new TestLogger<WindowsClickCaptureService>()));
 recorder.StatusChanged += (_, status) => Console.WriteLine($"{status.State}: {status.ErrorMessage}");
 try
 {
@@ -23,10 +24,16 @@ var formatIndex = Array.FindIndex(args, a => string.Equals(a, "--format", String
 var format = formatIndex >= 0 && formatIndex + 1 < args.Length && Enum.TryParse<RecordingContainer>(args[formatIndex + 1], true, out var parsed)
     ? parsed : RecordingContainer.Mp4;
 var profile = new RecordingProfile(format, format == RecordingContainer.Gif ? VideoCodec.Gif : VideoCodec.H264, 2_000_000, 15, 640, 480);
-var overlays = args.Contains("--watermark")
-    ? new RecordingOverlaySettings(new WatermarkSettings(WatermarkKind.Text, "TelaRec", null, OverlayPosition.TopLeft, 0.8, 0.25), new WebcamOverlaySettings())
-    : RecordingOverlaySettings.None;
-    await recorder.StartAsync(new RecordingRequest(path, 15, args.Contains("--audio"), target, profile, overlays));
+var clickEffects = args.Contains("--click-effects")
+    ? new ClickEffectSettings(Enabled: true, Radius: 32, DurationSeconds: 1.0, Color: "#FF0000", Opacity: 1.0)
+    : ClickEffectSettings.None;
+var overlays = new RecordingOverlaySettings(
+    args.Contains("--watermark")
+        ? new WatermarkSettings(WatermarkKind.Text, "TelaRec", null, OverlayPosition.TopLeft, 0.8, 0.25)
+        : new WatermarkSettings(),
+    new WebcamOverlaySettings(),
+    clickEffects);
+    await recorder.StartAsync(new RecordingRequest(path, 15, args.Contains("--audio"), target, profile, overlays, ShowCursor: !args.Contains("--cursor-off")));
     using var output = args.Contains("--audio") && !args.Contains("--silent") ? new WaveOutEvent() : null;
     if (output is not null)
     {

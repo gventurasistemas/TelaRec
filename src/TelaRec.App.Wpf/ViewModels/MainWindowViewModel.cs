@@ -84,15 +84,27 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => _settings.SystemAudioEnabled;
         set { if (_settings.SystemAudioEnabled != value) { _settings.SystemAudioEnabled = value; OnPropertyChanged(); OnPropertyChanged(nameof(AudioStatusText)); } }
     }
+    public bool ShowCursor
+    {
+        get => _settings.ShowCursor;
+        set { if (_settings.ShowCursor != value) { _settings.ShowCursor = value; OnPropertyChanged(); } }
+    }
+    public bool ShowClickEffects
+    {
+        get => _settings.ShowClickEffects;
+        set { if (_settings.ShowClickEffects != value) { _settings.ShowClickEffects = value; OnPropertyChanged(); } }
+    }
     public string AudioStatusText => SystemAudioEnabled ? "🔊 Áudio ligado" : "🔇 Áudio desligado";
     public string OutputFormat
     {
         get => _settings.RecordingContainer.ToString().ToUpperInvariant();
         set
         {
-            if (Enum.TryParse<RecordingContainer>(value, true, out var container)) { _settings.RecordingContainer = container; OnPropertyChanged(); }
+            if (Enum.TryParse<RecordingContainer>(value, true, out var container)) { _settings.RecordingContainer = container; OnPropertyChanged(); OnPropertyChanged(nameof(FormatSummary)); }
         }
     }
+    /// <summary>Resumo exibido no cartão de status: recipiente, codec e resolução efetiva.</summary>
+    public string FormatSummary => $"{OutputFormat} • H.264 • {_settings.OutputWidth}×{_settings.OutputHeight}";
     public string OutputResolution
     {
         get => $"{_settings.OutputWidth}×{_settings.OutputHeight}";
@@ -101,7 +113,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var parts = value.Split('×', 'x', 'X');
             if (parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height))
             {
-                _settings.OutputWidth = width; _settings.OutputHeight = height; OnPropertyChanged();
+                _settings.OutputWidth = width; _settings.OutputHeight = height; OnPropertyChanged(); OnPropertyChanged(nameof(FormatSummary));
             }
         }
     }
@@ -135,8 +147,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(FramesPerSecond));
         OnPropertyChanged(nameof(SystemAudioEnabled));
         OnPropertyChanged(nameof(AudioStatusText));
+        OnPropertyChanged(nameof(ShowCursor));
+        OnPropertyChanged(nameof(ShowClickEffects));
         OnPropertyChanged(nameof(OutputFormat));
         OnPropertyChanged(nameof(OutputResolution));
+        OnPropertyChanged(nameof(FormatSummary));
         OnPropertyChanged(nameof(VideoBitrate));
         OnPropertyChanged(nameof(WebcamEnabled)); OnPropertyChanged(nameof(WebcamDeviceIndex)); OnPropertyChanged(nameof(WebcamScale));
         OnPropertyChanged(nameof(WatermarkText)); OnPropertyChanged(nameof(WatermarkImagePath)); OnPropertyChanged(nameof(WatermarkOpacity)); OnPropertyChanged(nameof(WatermarkScale));
@@ -233,8 +248,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             "Região personalizada" when _selectedTarget is CaptureTarget.Region region => region,
             _ => throw new InvalidOperationException("Selecione a janela ou região antes de gravar.")
         };
-        return new RecordingRequest(Path.Combine(OutputDirectory, name), FramesPerSecond, SystemAudioEnabled, target, profile, new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam));
+        return new RecordingRequest(Path.Combine(OutputDirectory, name), FramesPerSecond, SystemAudioEnabled, target, profile, new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam, BuildClickEffects()), _settings.ShowCursor);
     }
+    private ClickEffectSettings BuildClickEffects() => _settings.ShowClickEffects
+        ? new ClickEffectSettings(
+            Enabled: true,
+            Radius: _settings.ClickEffectRadius,
+            DurationSeconds: _settings.ClickEffectDurationSeconds,
+            Color: _settings.ClickEffectColor)
+        : ClickEffectSettings.None;
     private async Task PauseRecordingAsync() { try { await _recordingService.PauseAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao pausar"); } }
     private async Task ResumeRecordingAsync() { try { await _recordingService.ResumeAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao retomar"); } }
     private async Task StopRecordingAsync() { try { await _recordingService.StopAsync(); } catch (Exception exception) { _logger.LogError(exception, "Falha ao parar"); } }

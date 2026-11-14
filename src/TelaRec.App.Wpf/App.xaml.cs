@@ -36,6 +36,7 @@ public partial class App : Application
             });
             services.AddSingleton<ISettingsService, JsonSettingsService>();
             services.AddSingleton<IVideoCaptureService, WindowsGraphicsCaptureService>();
+            services.AddSingleton<IClickCaptureService, WindowsClickCaptureService>();
             services.AddSingleton<IVideoEncoderService, MediaFoundationVideoEncoderService>();
             services.AddSingleton<IFrameScaler, BgraFrameScaler>();
             services.AddSingleton<IVideoFrameComposer, VideoFrameComposer>();

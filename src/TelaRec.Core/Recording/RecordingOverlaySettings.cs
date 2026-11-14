@@ -20,7 +20,10 @@ public sealed record WebcamOverlaySettings(
 
 public sealed record RecordingOverlaySettings(
     WatermarkSettings Watermark,
-    WebcamOverlaySettings Webcam)
+    WebcamOverlaySettings Webcam,
+    ClickEffectSettings? ClickEffects = null)
 {
+    public ClickEffectSettings EffectiveClickEffects => ClickEffects ?? ClickEffectSettings.None;
+
     public static RecordingOverlaySettings None { get; } = new(new WatermarkSettings(), new WebcamOverlaySettings());
 }

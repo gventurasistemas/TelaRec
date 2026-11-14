@@ -17,7 +17,10 @@ public sealed class TelaRecSettings
     public string TogglePauseHotkey { get; set; } = "Ctrl+Alt+P";
     public string LastCaptureMode { get; set; } = "Tela inteira";
     public bool ShowCursor { get; set; } = true;
-    public bool ShowClickEffects { get; set; } = true;
+    public bool ShowClickEffects { get; set; } = false;
+    public double ClickEffectDurationSeconds { get; set; } = 0.6;
+    public double ClickEffectRadius { get; set; } = 28;
+    public string ClickEffectColor { get; set; } = "#FF3B30";
     public string SelectedPreset { get; set; } = "Tutorial 1080p";
     public RecordingContainer RecordingContainer { get; set; } = RecordingContainer.Mp4;
     public VideoCodec VideoCodec { get; set; } = VideoCodec.H264;
