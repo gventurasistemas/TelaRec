@@ -32,9 +32,11 @@ Os textos da WPF usam recursos em Resources/Strings.resx (pt-BR padrão) e Resou
 
 ## Confiabilidade
 
-Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. Na abertura seguinte, o TelaRec remove somente temporários partial.mp4 declarados no journal e no mesmo diretório do arquivo final; caminhos externos ou inválidos são preservados.
+Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. A recuperação na abertura seguinte existe para encerramentos abruptos (queda do processo ou desligamento): remove somente temporários partial.mp4 declarados no journal e no mesmo diretório do arquivo final; caminhos externos ou inválidos são preservados. Quando a própria gravação trata a falha, o temporário é apagado na hora e o journal não é reaproveitado.
 
-O agendador impede períodos sobrepostos e confere se já existe uma gravação ativa. Antes de iniciar, verifica suporte da captura e se a sessão está desbloqueada. Falhas de áudio ou webcam não param o vídeo; falha da tela encerra a sessão e mantém o journal para recuperação. Diagnósticos recentes aparecem na parte inferior da janela e são registrados com código, severidade e mensagem.
+O agendador impede períodos sobrepostos e confere se já existe uma gravação ativa. Tanto a gravação manual quanto a agendada verificam antes de iniciar se a captura de tela é suportada e se a sessão está desbloqueada; quando não está disponível, o motivo é exibido e o estado permanece Idle, sem registrar falha. Falhas de áudio ou webcam não param o vídeo; falha da tela encerra a sessão e mantém o journal para recuperação. A interface mostra o diagnóstico mais recente na parte inferior da janela, com código, severidade e mensagem.
+
+As configurações ficam em `%APPDATA%\TelaRec\settings.json`. A gravação é atômica: o conteúdo é escrito em um arquivo temporário no mesmo diretório, validado por desserialização e só então substitui o arquivo atual, mantendo `settings.json.bak` com a versão anterior. Se o JSON principal estiver corrompido, o TelaRec tenta o backup, registra um diagnóstico e, em último caso, abre com os valores padrão sem falhar. Antes de iniciar qualquer gravação, pasta de saída, FPS (1–120), bitrate (500 kb/s–80 Mb/s), resolução e combinação contêiner/codec são validados com mensagens específicas.
 
 Logs de execução são gravados em `%LOCALAPPDATA%\TelaRec\logs` (um arquivo por dia, retenção de 14 dias). Exceções não tratadas são registradas e exibidas ao usuário, e o encerramento libera captura, áudio, webcam e encoder de forma assíncrona, sem deixar arquivos temporários.
 
@@ -63,7 +65,7 @@ tools/TelaRec.Smoke          Gravação curta de validação no desktop
 
 ## Executar
 
-Requer Windows 10 versão 1903 ou posterior, x64, .NET 8 SDK e sessão interativa de desktop.
+Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela.
 
 ```powershell
 dotnet restore TelaRec.sln

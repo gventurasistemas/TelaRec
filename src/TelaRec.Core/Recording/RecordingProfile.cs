@@ -5,9 +5,18 @@ public sealed record RecordingProfile(RecordingContainer Container, VideoCodec V
 {
     public static RecordingProfile Mvp { get; } = new(RecordingContainer.Mp4, VideoCodec.H264, 8_000_000, 30, 1920, 1080);
     public string FileExtension => Container switch { RecordingContainer.Mp4 => ".mp4", RecordingContainer.Mkv => ".mkv", RecordingContainer.Mov => ".mov", RecordingContainer.Gif => ".gif", _ => throw new ArgumentOutOfRangeException() };
-    public bool IsValid =>
-        Bitrate > 0 && FramesPerSecond is > 0 and <= 120 && Width > 0 && Height > 0 &&
-        (Container == RecordingContainer.Gif || Width % 2 == 0 && Height % 2 == 0) &&
-        (Container != RecordingContainer.Gif || VideoCodec == VideoCodec.Gif) &&
-        (Container == RecordingContainer.Gif || VideoCodec is VideoCodec.H264 or VideoCodec.Hevc);
+    public bool IsValid
+    {
+        get
+        {
+            if (Bitrate <= 0 || FramesPerSecond is <= 0 or > 120 || Width <= 0 || Height <= 0) return false;
+            if (Container == RecordingContainer.Gif) return VideoCodec == VideoCodec.Gif;
+            if (VideoCodec == VideoCodec.Gif) return false;
+            if (Width % 2 != 0 || Height % 2 != 0) return false;
+            // O encoder nativo grava o intermediário MP4/H.264; HEVC em MP4 exigiria
+            // pós-processamento e é rejeitado até a implementação do P09.
+            if (Container == RecordingContainer.Mp4 && VideoCodec == VideoCodec.Hevc) return false;
+            return VideoCodec is VideoCodec.H264 or VideoCodec.Hevc;
+        }
+    }
 }
