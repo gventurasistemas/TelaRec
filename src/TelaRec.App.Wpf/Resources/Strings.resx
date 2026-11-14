@@ -1,27 +1,125 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="AppTitle"><value>TelaRec</value></data><data name="ScreenRecorder"><value>Gravador de tela</value></data>
-  <data name="Recording"><value>Gravação</value></data><data name="Settings"><value>Configurações</value></data>
-  <data name="Start"><value>Gravar</value></data><data name="Pause"><value>Pausar</value></data><data name="Resume"><value>Retomar</value></data><data name="Stop"><value>Parar</value></data>
-  <data name="OpenFolder"><value>Abrir pasta</value></data><data name="SaveSettings"><value>Salvar configurações</value></data>
-  <data name="OutputFolder"><value>Pasta de saída</value></data><data name="Audio"><value>Áudio</value></data><data name="Capture"><value>Captura</value></data>
-  <data name="Watermark"><value>Marca d’água</value></data><data name="Webcam"><value>Webcam</value></data><data name="Enabled"><value>Ativar</value></data>
-  <data name="WatermarkText"><value>Texto da marca</value></data><data name="WatermarkImage"><value>PNG da marca</value></data>
-  <data name="Position"><value>Posição</value></data><data name="Opacity"><value>Opacidade</value></data><data name="Scale"><value>Escala</value></data>
-  <data name="Ready"><value>Pronto para gravar a tela principal.</value></data><data name="RecordingComplete"><value>Gravação concluída.</value></data><data name="RecordingPaused"><value>Gravação pausada.</value></data>
-  <data name="UnexpectedErrorTitle"><value>Erro inesperado</value></data>
-  <data name="UnexpectedErrorMessage"><value>O TelaRec encontrou um erro inesperado. Os detalhes foram registrados em %LOCALAPPDATA%\TelaRec\logs.</value></data>
-  <data name="Cursor"><value>Cursor</value></data><data name="ShowCursor"><value>Mostrar cursor</value></data>
-  <data name="ClickEffects"><value>Efeitos de clique</value></data><data name="EnableClickEffects"><value>Destacar cliques</value></data>
-  <data name="StartHint"><value>Clique no botão Gravar (abaixo) para iniciar a captura.</value></data>
-  <data name="ScheduleStart"><value>Início</value></data><data name="ScheduleMinutes"><value>Duração (min)</value></data><data name="Schedule"><value>Agendar</value></data>
+  <data name="AppTitle"><value>TelaRec</value></data>
+  <data name="ScreenRecorder"><value>Gravador de tela</value></data>
+  <data name="Recording"><value>Gravação</value></data>
+  <data name="Settings"><value>Configurações</value></data>
+  <data name="Schedules"><value>Agendamentos</value></data>
+  <data name="Diagnostics"><value>Diagnósticos</value></data>
+  <data name="Start"><value>Gravar</value></data>
+  <data name="Pause"><value>Pausar</value></data>
+  <data name="Resume"><value>Retomar</value></data>
+  <data name="Stop"><value>Parar</value></data>
   <data name="Screenshot"><value>Capturar tela</value></data>
+  <data name="OpenFolder"><value>Abrir pasta</value></data>
+  <data name="SaveSettings"><value>Salvar configurações</value></data>
+  <data name="Clear"><value>Limpar</value></data>
+  <data name="Cancel"><value>Cancelar</value></data>
+  <data name="StartHint"><value>Clique no botão Gravar (abaixo) para iniciar a captura.</value></data>
+  <data name="StartTooltip"><value>Inicia a gravação da tela</value></data>
   <data name="ScreenshotHint"><value>Salva um PNG do monitor sob o cursor na pasta de saída.</value></data>
-  <data name="Preset"><value>Preset</value></data><data name="CustomPreset"><value>Personalizado</value></data><data name="Quality"><value>Qualidade</value></data>
+  <data name="OutputFolder"><value>Pasta de saída</value></data>
+  <data name="Preset"><value>Preset</value></data>
+  <data name="CustomPreset"><value>Personalizado</value></data>
+  <data name="FpsLabel"><value>FPS</value></data>
+  <data name="Audio"><value>Áudio</value></data>
+  <data name="AudioSystem"><value>Gravar áudio do sistema</value></data>
+  <data name="AudioOn"><value>🔊 Áudio ligado</value></data>
+  <data name="AudioOff"><value>🔇 Áudio desligado</value></data>
+  <data name="Capture"><value>Captura</value></data>
+  <data name="CaptureFullScreen"><value>Tela inteira</value></data>
+  <data name="CaptureWindow"><value>Janela selecionada</value></data>
+  <data name="CaptureRegion"><value>Região personalizada</value></data>
+  <data name="SelectWindow"><value>Selecionar janela</value></data>
+  <data name="UseWindow"><value>Usar janela</value></data>
+  <data name="SelectRegion"><value>Selecionar região</value></data>
+  <data name="Cursor"><value>Cursor</value></data>
+  <data name="ShowCursor"><value>Mostrar cursor</value></data>
+  <data name="ClickEffects"><value>Efeitos de clique</value></data>
+  <data name="EnableClickEffects"><value>Destacar cliques</value></data>
+  <data name="Format"><value>Formato</value></data>
+  <data name="Resolution"><value>Resolução</value></data>
+  <data name="Bitrate"><value>Bitrate (bps)</value></data>
+  <data name="Quality"><value>Qualidade</value></data>
   <data name="QualityHint"><value>Ao mudar a qualidade, o bitrate sugerido é recalculado. Você ainda pode editá-lo manualmente.</value></data>
+  <data name="QualityHigh"><value>Alta</value></data>
+  <data name="QualityMedium"><value>Média</value></data>
+  <data name="QualityLow"><value>Baixa</value></data>
+  <data name="SectionVideo"><value>Vídeo</value></data>
+  <data name="SectionAudio"><value>Áudio</value></data>
+  <data name="SectionOverlays"><value>Sobreposições</value></data>
+  <data name="SectionHotkeys"><value>Atalhos</value></data>
+  <data name="SectionOutput"><value>Saída</value></data>
+  <data name="SectionWindow"><value>Janela e bandeja</value></data>
+  <data name="Watermark"><value>Marca d’água</value></data>
+  <data name="WatermarkText"><value>Texto da marca</value></data>
+  <data name="WatermarkImage"><value>PNG da marca</value></data>
+  <data name="Webcam"><value>Webcam</value></data>
+  <data name="Enabled"><value>Ativar</value></data>
+  <data name="Position"><value>Posição</value></data>
+  <data name="Opacity"><value>Opacidade</value></data>
+  <data name="Scale"><value>Escala</value></data>
+  <data name="DeviceIndex"><value>Índice do dispositivo</value></data>
+  <data name="PositionBottomRight"><value>Inferior direita</value></data>
+  <data name="PositionBottomLeft"><value>Inferior esquerda</value></data>
+  <data name="PositionTopRight"><value>Superior direita</value></data>
+  <data name="PositionTopLeft"><value>Superior esquerda</value></data>
   <data name="ToggleRecordingHotkey"><value>Atalho gravar/parar</value></data>
   <data name="TogglePauseHotkey"><value>Atalho pausar/retomar</value></data>
   <data name="ScreenshotHotkey"><value>Atalho capturar tela</value></data>
+  <data name="HotkeyTooltip"><value>Ex.: {0}</value></data>
+  <data name="CloseToTray"><value>Fechar minimiza para a bandeja</value></data>
+  <data name="CloseToTrayHint"><value>Desmarque para encerrar o TelaRec ao fechar a janela.</value></data>
+  <data name="ScheduleStart"><value>Início</value></data>
+  <data name="ScheduleMinutes"><value>Duração (min)</value></data>
+  <data name="Schedule"><value>Agendar</value></data>
+  <data name="ScheduleFormHint"><value>Escolha o início e a duração; o agendamento usa as configurações atuais.</value></data>
+  <data name="SchedulesEmpty"><value>Nenhum agendamento nesta sessão.</value></data>
+  <data name="ScheduledStatePending"><value>Pendente</value></data>
+  <data name="ScheduledStateRecording"><value>Gravando</value></data>
+  <data name="ScheduledStateCompleted"><value>Concluído</value></data>
+  <data name="ScheduledStateRejected"><value>Rejeitado</value></data>
+  <data name="ScheduledStateFailed"><value>Falha</value></data>
+  <data name="ColumnStart"><value>Início</value></data>
+  <data name="ColumnEnd"><value>Fim</value></data>
+  <data name="ColumnState"><value>Estado</value></data>
+  <data name="ColumnActions"><value>Ações</value></data>
+  <data name="ScheduleMessage"><value>Motivo</value></data>
+  <data name="ScheduleConflict"><value>O agendamento conflita com outra gravação.</value></data>
+  <data name="ScheduleActiveRecording"><value>Já existe uma gravação ativa.</value></data>
+  <data name="ScheduleUnavailable"><value>A captura de tela não está disponível.</value></data>
+  <data name="ScheduleStartFailed"><value>Não foi possível iniciar a gravação agendada.</value></data>
+  <data name="ScheduleStopFailed"><value>Não foi possível encerrar a gravação agendada.</value></data>
+  <data name="ScheduleCreated"><value>Gravação agendada para {0:dd/MM HH:mm}.</value></data>
+  <data name="ScheduleCreateFailed"><value>Não foi possível agendar: {0}</value></data>
+  <data name="ScheduleMissingTimes"><value>Informe um início no futuro e uma duração positiva.</value></data>
+  <data name="ScheduleCancelled"><value>Agendamento cancelado.</value></data>
+  <data name="DiagnosticsEmpty"><value>Nenhum diagnóstico registrado.</value></data>
+  <data name="DiagnosticsHint"><value>Os últimos 20 eventos aparecem aqui e também no log em arquivo.</value></data>
+  <data name="SeverityInformation"><value>Info</value></data>
+  <data name="SeverityWarning"><value>Alerta</value></data>
+  <data name="SeverityError"><value>Erro</value></data>
+  <data name="TrayShow"><value>Abrir TelaRec</value></data>
+  <data name="TrayExit"><value>Sair</value></data>
+  <data name="TrayBalloonHint"><value>O TelaRec continua em execução na bandeja.</value></data>
+  <data name="NotificationStartedTitle"><value>Gravação iniciada</value></data>
+  <data name="NotificationStartedBody"><value>A gravação da tela foi iniciada.</value></data>
+  <data name="NotificationPausedTitle"><value>Gravação pausada</value></data>
+  <data name="NotificationPausedBody"><value>A gravação foi pausada.</value></data>
+  <data name="NotificationCompletedTitle"><value>Gravação concluída</value></data>
+  <data name="NotificationCompletedBody"><value>O arquivo foi salvo na pasta de saída.</value></data>
+  <data name="NotificationErrorTitle"><value>Falha na gravação</value></data>
+  <data name="NotificationErrorBody"><value>{0}</value></data>
+  <data name="Ready"><value>Pronto para gravar a tela principal.</value></data>
+  <data name="RecordingInProgress"><value>Gravando — {0}</value></data>
+  <data name="RecordingPaused"><value>Gravação pausada.</value></data>
+  <data name="RecordingComplete"><value>Gravação concluída.</value></data>
+  <data name="RecordingFailed"><value>Falha: {0}</value></data>
+  <data name="SettingsSaved"><value>Configurações salvas.</value></data>
+  <data name="SettingsSaveFailed"><value>Não foi possível salvar as configurações.</value></data>
+  <data name="WindowSelected"><value>Janela: {0}</value></data>
+  <data name="RegionSelected"><value>Região selecionada.</value></data>
+  <data name="FullScreenSelected"><value>Tela inteira selecionada.</value></data>
   <data name="ScreenshotSaved"><value>Captura salva: {0}</value></data>
   <data name="ScreenshotFailed"><value>Não foi possível capturar a tela.</value></data>
   <data name="HotkeyInvalid"><value>Atalho inválido: {0}. Use combinações como Ctrl+Alt+R.</value></data>
@@ -30,5 +128,25 @@
   <data name="HotkeyInUse"><value>O atalho {0} já está em uso por outro programa.</value></data>
   <data name="HotkeyInvalidFormat"><value>Informe uma combinação válida, como Ctrl+Alt+R.</value></data>
   <data name="HotkeyServiceUnavailable"><value>O serviço de atalhos globais não está disponível.</value></data>
-  <data name="SettingsSaved"><value>Configurações salvas.</value></data>
+  <data name="CaptureUnavailable"><value>A captura de tela não está disponível.</value></data>
+  <data name="CaptureUnsupported"><value>A captura de tela não é suportada nesta versão do Windows.</value></data>
+  <data name="DesktopLocked"><value>A tela está bloqueada.</value></data>
+  <data name="DeviceUnavailable"><value>Dispositivo indisponível.</value></data>
+  <data name="ValidationSummary"><value>Corrija os campos destacados antes de continuar.</value></data>
+  <data name="ValidationOutputDirectoryEmpty"><value>Informe uma pasta de saída.</value></data>
+  <data name="ValidationOutputDirectoryNotAbsolute"><value>A pasta de saída deve ser um caminho absoluto.</value></data>
+  <data name="ValidationOutputDirectoryMissing"><value>A pasta de saída não existe. Crie-a ou escolha outra.</value></data>
+  <data name="ValidationOutputDirectoryUnavailable"><value>A pasta de saída não pode ser criada ou escrita.</value></data>
+  <data name="ValidationFpsOutOfRange"><value>O FPS deve ficar entre {0} e {1}.</value></data>
+  <data name="ValidationBitrateOutOfRange"><value>O bitrate deve ficar entre {0:N0} e {1:N0} bps.</value></data>
+  <data name="ValidationResolutionOutOfRange"><value>A resolução deve ter largura e altura positivas.</value></data>
+  <data name="ValidationResolutionMustBeEven"><value>A resolução deve ter largura e altura pares para este formato.</value></data>
+  <data name="ValidationProfileNotSupported"><value>A combinação de formato, codec, resolução, FPS e bitrate não é suportada.</value></data>
+  <data name="ValidationHotkeyInvalid"><value>Atalho inválido: {0}</value></data>
+  <data name="ValidationHotkeyDuplicate"><value>Use atalhos diferentes para gravar, pausar e capturar a tela.</value></data>
+  <data name="PresetTutorial1080p"><value>Tutorial 1080p</value></data>
+  <data name="PresetLight720p"><value>Leve 720p</value></data>
+  <data name="PresetHighQuality60"><value>Alta qualidade 60 FPS</value></data>
+  <data name="UnexpectedErrorTitle"><value>Erro inesperado</value></data>
+  <data name="UnexpectedErrorMessage"><value>O TelaRec encontrou um erro inesperado. Os detalhes foram registrados em %LOCALAPPDATA%\TelaRec\logs.</value></data>
 </root>

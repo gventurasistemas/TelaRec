@@ -12,7 +12,26 @@ public sealed record ScheduledRecording(
 }
 
 public enum ScheduledRecordingState { Pending, Recording, Completed, Rejected, Failed }
-public sealed record ScheduledRecordingStatus(Guid Id, ScheduledRecordingState State, string? Message = null);
+
+/// <summary>
+/// Código do motivo associado a um estado de agendamento. A mensagem textual
+/// continua disponível para diagnóstico, mas a UI usa o código para traduzir.
+/// </summary>
+public enum ScheduledRecordingMessageCode
+{
+    None,
+    Conflict,
+    ActiveRecording,
+    Unavailable,
+    StartFailed,
+    StopFailed
+}
+
+public sealed record ScheduledRecordingStatus(
+    Guid Id,
+    ScheduledRecordingState State,
+    string? Message = null,
+    ScheduledRecordingMessageCode MessageCode = ScheduledRecordingMessageCode.None);
 
 public interface IRecordingScheduler : IAsyncDisposable
 {

@@ -1,11 +1,23 @@
 namespace TelaRec.Core.Configuration;
-public sealed record RecordingPreset(string Name, int Width, int Height, int FramesPerSecond, string Quality);
+
+/// <summary>
+/// Preset de gravação. O <see cref="Id"/> é estável e persistido em settings.json;
+/// o <see cref="ResourceKey"/> aponta para o nome localizado exibido na UI.
+/// </summary>
+public sealed record RecordingPreset(
+    string Id,
+    string ResourceKey,
+    int Width,
+    int Height,
+    int FramesPerSecond,
+    string Quality);
+
 public static class RecordingPresets
 {
     public static IReadOnlyList<RecordingPreset> All { get; } = new[]
     {
-        new RecordingPreset("Tutorial 1080p", 1920, 1080, 30, "Alta"),
-        new RecordingPreset("Leve 720p", 1280, 720, 30, "Média"),
-        new RecordingPreset("Alta qualidade 60 FPS", 1920, 1080, 60, "Alta")
+        new RecordingPreset("tutorial-1080p", "PresetTutorial1080p", 1920, 1080, 30, "Alta"),
+        new RecordingPreset("light-720p", "PresetLight720p", 1280, 720, 30, "Média"),
+        new RecordingPreset("high-quality-60", "PresetHighQuality60", 1920, 1080, 60, "Alta")
     };
 }

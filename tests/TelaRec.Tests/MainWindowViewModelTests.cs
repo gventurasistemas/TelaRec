@@ -21,13 +21,13 @@ public sealed class MainWindowViewModelTests
             var viewModel = CreateViewModel(
                 new FakeSettingsService(directory),
                 recording,
-                new FakeAvailabilityProbe(new RecordingAvailability(false, "A tela está bloqueada.")));
+                new FakeAvailabilityProbe(new RecordingAvailability(false, null, RecordingUnavailableReason.DesktopLocked)));
 
             await viewModel.LoadAsync();
             await viewModel.StartRecordingAsync();
 
             Assert.False(recording.StartCalled);
-            Assert.Equal("A tela está bloqueada.", viewModel.StatusMessage);
+            Assert.Equal(Strings.DesktopLocked, viewModel.StatusMessage);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -78,7 +78,8 @@ public sealed class MainWindowViewModelTests
             await viewModel.StartRecordingAsync();
 
             Assert.False(recording.StartCalled);
-            Assert.Contains("FPS", viewModel.StatusMessage);
+            Assert.Equal(Strings.ValidationSummary, viewModel.StatusMessage);
+            Assert.NotEmpty(viewModel.GetErrors(nameof(viewModel.FramesPerSecond)).Cast<string>());
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -93,13 +94,13 @@ public sealed class MainWindowViewModelTests
             var viewModel = CreateViewModel(settings, new FakeRecordingService(), new FakeAvailabilityProbe(new RecordingAvailability(true)));
 
             await viewModel.LoadAsync();
-            viewModel.SelectedPreset = "Leve 720p";
+            viewModel.SelectedPreset = "light-720p";
 
             Assert.Equal("1280×720", viewModel.OutputResolution);
             Assert.Equal(30, viewModel.FramesPerSecond);
             Assert.Equal(QualityBitrateCalculator.Suggest("Média", 1280, 720, 30), viewModel.VideoBitrate);
             Assert.True(await viewModel.SaveSettingsAsync());
-            Assert.Equal("Leve 720p", settings.Settings.SelectedPreset);
+            Assert.Equal("light-720p", settings.Settings.SelectedPreset);
             Assert.Equal(1280, settings.Settings.OutputWidth);
         }
         finally { Directory.Delete(directory, true); }
@@ -114,10 +115,10 @@ public sealed class MainWindowViewModelTests
             var viewModel = CreateViewModel(new FakeSettingsService(directory), new FakeRecordingService(), new FakeAvailabilityProbe(new RecordingAvailability(true)));
             await viewModel.LoadAsync();
 
-            viewModel.SelectedPreset = "Tutorial 1080p";
+            viewModel.SelectedPreset = "tutorial-1080p";
             viewModel.VideoBitrate = 3_000_000;
 
-            Assert.Equal(Strings.CustomPreset, viewModel.SelectedPreset);
+            Assert.Equal(MainWindowViewModel.CustomPresetId, viewModel.SelectedPreset);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -134,7 +135,7 @@ public sealed class MainWindowViewModelTests
             viewModel.Quality = "Baixa";
 
             Assert.Equal(QualityBitrateCalculator.Suggest("Baixa", 1920, 1080, 30), viewModel.VideoBitrate);
-            Assert.Equal(Strings.CustomPreset, viewModel.SelectedPreset);
+            Assert.Equal(MainWindowViewModel.CustomPresetId, viewModel.SelectedPreset);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -231,7 +232,9 @@ public sealed class MainWindowViewModelTests
             viewModel.ToggleRecordingHotkey = "Ctrl+Alt";
 
             Assert.False(await viewModel.SaveSettingsAsync());
-            Assert.Contains("Atalho inválido", viewModel.StatusMessage);
+            Assert.Equal(Strings.ValidationSummary, viewModel.StatusMessage);
+            Assert.Contains(viewModel.GetErrors(nameof(viewModel.ToggleRecordingHotkey)).Cast<string>(),
+                error => error.Contains("Atalho inválido"));
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -250,7 +253,146 @@ public sealed class MainWindowViewModelTests
 
             await viewModel.LoadAsync();
 
-            Assert.Equal("Tela inteira", viewModel.CaptureMode);
+            Assert.Equal("fullscreen", viewModel.CaptureMode);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Diagnostics_are_listed_newest_first_and_can_be_cleared()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var diagnostics = new FakeDiagnostics();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                diagnostics: diagnostics);
+            await viewModel.LoadAsync();
+
+            diagnostics.Report(DiagnosticSeverity.Information, "first", "Primeiro evento");
+            diagnostics.Report(DiagnosticSeverity.Warning, "second", "Segundo evento");
+
+            Assert.Equal(2, viewModel.Diagnostics.Count);
+            Assert.Equal("second", viewModel.Diagnostics[0].Code);
+            Assert.True(viewModel.HasDiagnostics);
+
+            viewModel.ClearDiagnosticsCommand.Execute(null);
+
+            Assert.Empty(viewModel.Diagnostics);
+            Assert.False(viewModel.HasDiagnostics);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Scheduled_recording_updates_state_shows_rejection_and_can_be_cancelled()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var scheduler = new FakeScheduler();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                scheduler: scheduler);
+            await viewModel.LoadAsync();
+            viewModel.ScheduledStart = DateTime.Now.AddMinutes(5);
+            viewModel.ScheduledMinutes = 10;
+
+            await viewModel.ScheduleRecordingAsync();
+
+            var item = Assert.Single(viewModel.Schedules);
+            Assert.Equal(ScheduledRecordingState.Pending, item.State);
+            Assert.Equal(Strings.ScheduledStatePending, item.StateLabel);
+            Assert.True(item.CanCancel);
+
+            scheduler.Report(item.Id, ScheduledRecordingState.Rejected, ScheduledRecordingMessageCode.Conflict);
+
+            Assert.Equal(ScheduledRecordingState.Rejected, item.State);
+            Assert.Equal(Strings.ScheduledStateRejected, item.StateLabel);
+            Assert.Equal(Strings.ScheduleConflict, item.Message);
+            Assert.False(item.CanCancel);
+
+            await viewModel.CancelScheduleAsync(item.Id);
+
+            Assert.Empty(viewModel.Schedules);
+            Assert.Equal(Strings.ScheduleCancelled, viewModel.StatusMessage);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Invalid_bitrate_blocks_start()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)));
+            await viewModel.LoadAsync();
+
+            viewModel.VideoBitrate = 100;
+            await viewModel.StartRecordingAsync();
+
+            Assert.False(recording.StartCalled);
+            Assert.True(viewModel.HasErrors);
+            Assert.NotEmpty(viewModel.GetErrors(nameof(viewModel.VideoBitrate)).Cast<string>());
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Relative_output_directory_blocks_start()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)));
+            await viewModel.LoadAsync();
+
+            viewModel.OutputDirectory = "pasta-relativa";
+            await viewModel.StartRecordingAsync();
+
+            Assert.False(recording.StartCalled);
+            Assert.NotEmpty(viewModel.GetErrors(nameof(viewModel.OutputDirectory)).Cast<string>());
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Recording_state_changes_update_status_and_notifications()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var notifications = new List<NotificationMessage>();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)));
+            viewModel.NotificationRequested += (_, message) => notifications.Add(message);
+            await viewModel.LoadAsync();
+
+            await viewModel.ToggleRecordingAsync();
+            Assert.Equal(RecordingState.Recording, viewModel.CurrentRecordingState);
+            Assert.True(viewModel.StopRecordingCommand.CanExecute(null));
+            Assert.NotEqual(Strings.Ready, viewModel.StatusMessage);
+
+            await viewModel.ToggleRecordingAsync();
+            Assert.Equal(RecordingState.Completed, viewModel.CurrentRecordingState);
+            Assert.Contains(notifications, message => message.Title == Strings.NotificationStartedTitle);
+            Assert.Contains(notifications, message => message.Title == Strings.NotificationCompletedTitle);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -259,8 +401,10 @@ public sealed class MainWindowViewModelTests
         ISettingsService settings,
         IRecordingService recording,
         IRecordingAvailabilityProbe availability,
-        IScreenshotService? screenshot = null) =>
-        new(settings, recording, new FakeScheduler(), new SilentDiagnostics(), availability,
+        IScreenshotService? screenshot = null,
+        IRecordingDiagnostics? diagnostics = null,
+        IRecordingScheduler? scheduler = null) =>
+        new(settings, recording, scheduler ?? new FakeScheduler(), diagnostics ?? new SilentDiagnostics(), availability,
             screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance);
 
     private static string NewDirectory()
@@ -292,35 +436,41 @@ public sealed class MainWindowViewModelTests
         public int ResumeCalls { get; private set; }
         public RecordingRequest? LastRequest { get; private set; }
         public RecordingStatus Status { get; private set; } = RecordingStatus.Initial;
-        public event EventHandler<RecordingStatus>? StatusChanged { add { } remove { } }
+        public event EventHandler<RecordingStatus>? StatusChanged;
 
         public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
         {
             StartCalled = true;
             LastRequest = request;
-            Status = new RecordingStatus(RecordingState.Recording, TimeSpan.Zero);
+            SetStatus(new RecordingStatus(RecordingState.Recording, TimeSpan.Zero));
             return Task.CompletedTask;
         }
 
         public Task PauseAsync(CancellationToken cancellationToken = default)
         {
             PauseCalls++;
-            Status = new RecordingStatus(RecordingState.Paused, Status.Elapsed);
+            SetStatus(new RecordingStatus(RecordingState.Paused, Status.Elapsed));
             return Task.CompletedTask;
         }
 
         public Task ResumeAsync(CancellationToken cancellationToken = default)
         {
             ResumeCalls++;
-            Status = new RecordingStatus(RecordingState.Recording, Status.Elapsed);
+            SetStatus(new RecordingStatus(RecordingState.Recording, Status.Elapsed));
             return Task.CompletedTask;
         }
 
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
             StopCalled = true;
-            Status = new RecordingStatus(RecordingState.Completed, Status.Elapsed);
+            SetStatus(new RecordingStatus(RecordingState.Completed, Status.Elapsed));
             return Task.CompletedTask;
+        }
+
+        private void SetStatus(RecordingStatus status)
+        {
+            Status = status;
+            StatusChanged?.Invoke(this, status);
         }
     }
 
@@ -347,11 +497,48 @@ public sealed class MainWindowViewModelTests
 
     private sealed class FakeScheduler : IRecordingScheduler
     {
-        public IReadOnlyList<ScheduledRecordingStatus> Scheduled => [];
-        public event EventHandler<ScheduledRecordingStatus>? StatusChanged { add { } remove { } }
-        public Task ScheduleAsync(ScheduledRecording schedule, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task CancelAsync(Guid scheduleId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        private readonly List<ScheduledRecordingStatus> _statuses = [];
+
+        public IReadOnlyList<ScheduledRecordingStatus> Scheduled => _statuses;
+        public event EventHandler<ScheduledRecordingStatus>? StatusChanged;
+
+        public Task ScheduleAsync(ScheduledRecording schedule, CancellationToken cancellationToken = default)
+        {
+            var status = new ScheduledRecordingStatus(schedule.Id, ScheduledRecordingState.Pending);
+            _statuses.Add(status);
+            StatusChanged?.Invoke(this, status);
+            return Task.CompletedTask;
+        }
+
+        public Task CancelAsync(Guid scheduleId, CancellationToken cancellationToken = default)
+        {
+            _statuses.RemoveAll(status => status.Id == scheduleId);
+            return Task.CompletedTask;
+        }
+
+        public void Report(Guid id, ScheduledRecordingState state, ScheduledRecordingMessageCode code = ScheduledRecordingMessageCode.None)
+        {
+            var status = new ScheduledRecordingStatus(id, state, null, code);
+            _statuses.RemoveAll(item => item.Id == id);
+            _statuses.Add(status);
+            StatusChanged?.Invoke(this, status);
+        }
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FakeDiagnostics : IRecordingDiagnostics
+    {
+        private readonly List<RecordingDiagnostic> _items = [];
+        public IReadOnlyList<RecordingDiagnostic> Current => _items;
+        public event EventHandler<RecordingDiagnostic>? Reported;
+
+        public void Report(DiagnosticSeverity severity, string code, string message)
+        {
+            var item = new RecordingDiagnostic(DateTimeOffset.Now, severity, code, message);
+            _items.Add(item);
+            Reported?.Invoke(this, item);
+        }
     }
 
     private sealed class SilentDiagnostics : IRecordingDiagnostics
