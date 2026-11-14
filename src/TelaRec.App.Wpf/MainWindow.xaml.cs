@@ -1,46 +1,113 @@
 using System.Windows;
 using System.Windows.Forms;
+using Microsoft.Extensions.Logging;
 using TelaRec.App.Wpf.Infrastructure;
+using TelaRec.App.Wpf.Resources;
 using TelaRec.App.Wpf.ViewModels;
 using TelaRec.Core.Capture;
+using TelaRec.Core.Input;
 
 namespace TelaRec.App.Wpf;
 
 public partial class MainWindow : Window
 {
+    private const int HotkeyToggleRecording = 1;
+    private const int HotkeyTogglePause = 2;
+    private const int HotkeyScreenshot = 3;
+
     private readonly MainWindowViewModel _viewModel;
+    private readonly ILogger<MainWindow> _logger;
+    private readonly Dictionary<int, string> _appliedHotkeys = new();
     private NotifyIcon? _tray;
     private GlobalHotkeyService? _hotkeys;
 
-    public MainWindow(MainWindowViewModel viewModel)
+    public MainWindow(MainWindowViewModel viewModel, ILogger<MainWindow> logger)
     {
         InitializeComponent();
         _viewModel = viewModel;
+        _logger = logger;
         DataContext = _viewModel;
-        ContentRendered += async (_, _) => await _viewModel.LoadAsync();
+        ContentRendered += async (_, _) =>
+        {
+            await _viewModel.LoadAsync();
+            ApplyHotkeys();
+        };
         SourceInitialized += (_, _) => SetupShellIntegration();
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) Hide(); };
-        Closed += (_, _) => { _tray?.Dispose(); _hotkeys?.Dispose(); };
+        Closed += (_, _) => { _viewModel.HotkeysChanged -= OnHotkeysChanged; _tray?.Dispose(); _hotkeys?.Dispose(); };
     }
 
     private void SetupShellIntegration()
     {
         _hotkeys = new GlobalHotkeyService(this);
-        _hotkeys.Register(1, 0x0003, (uint)Keys.R); // Ctrl+Alt+R
-        _hotkeys.Register(2, 0x0003, (uint)Keys.P); // Ctrl+Alt+P
-        _hotkeys.Pressed += id => Dispatcher.Invoke(() =>
-        {
-            var command = id == 1 ? _viewModel.StartRecordingCommand : _viewModel.PauseRecordingCommand;
-            if (command.CanExecute(null)) command.Execute(null);
-        });
+        _hotkeys.Pressed += OnHotkeyPressed;
+        _viewModel.HotkeysChanged += OnHotkeysChanged;
+
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Gravar", null, (_, _) => _viewModel.StartRecordingCommand.Execute(null));
-        menu.Items.Add("Pausar", null, (_, _) => _viewModel.PauseRecordingCommand.Execute(null));
-        menu.Items.Add("Parar", null, (_, _) => _viewModel.StopRecordingCommand.Execute(null));
+        menu.Items.Add(Strings.Get("Start"), null, (_, _) => _viewModel.ToggleRecordingCommand.Execute(null));
+        menu.Items.Add(Strings.Get("Pause"), null, (_, _) => _viewModel.TogglePauseCommand.Execute(null));
+        menu.Items.Add(Strings.Get("Stop"), null, (_, _) => _viewModel.StopRecordingCommand.Execute(null));
+        menu.Items.Add(Strings.Get("Screenshot"), null, (_, _) => _viewModel.ScreenshotCommand.Execute(null));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Sair", null, (_, _) => Close());
         _tray = new NotifyIcon { Text = "TelaRec", Visible = true, ContextMenuStrip = menu, Icon = System.Drawing.SystemIcons.Application };
         _tray.DoubleClick += (_, _) => { Show(); WindowState = WindowState.Normal; Activate(); };
     }
+
+    private void OnHotkeysChanged(object? sender, EventArgs e) => ApplyHotkeys();
+
+    /// <summary>Re-registra os atalhos configurados sem reiniciar o aplicativo.</summary>
+    private void ApplyHotkeys()
+    {
+        if (_hotkeys is null) return;
+        RegisterHotkey(HotkeyToggleRecording, _viewModel.ToggleRecordingHotkey, Strings.ToggleRecordingHotkey);
+        RegisterHotkey(HotkeyTogglePause, _viewModel.TogglePauseHotkey, Strings.TogglePauseHotkey);
+        RegisterHotkey(HotkeyScreenshot, _viewModel.ScreenshotHotkey, Strings.ScreenshotHotkey);
+    }
+
+    private void RegisterHotkey(int id, string text, string label)
+    {
+        // Evita re-registrar a cada salvamento (inclusive durante a gravação),
+        // que poderia abrir uma janela curta sem o atalho ativo.
+        if (_appliedHotkeys.TryGetValue(id, out var applied) && applied == text && _hotkeys!.Registered.ContainsKey(id))
+            return;
+
+        _hotkeys!.Unregister(id);
+        _appliedHotkeys.Remove(id);
+        if (!HotkeyGesture.TryParse(text, out var gesture))
+        {
+            _viewModel.ReportHotkeyIssue($"{label}: {string.Format(Strings.HotkeyInvalid, text)}");
+            return;
+        }
+
+        var result = _hotkeys.Register(id, gesture);
+        if (!result.Success)
+        {
+            _viewModel.ReportHotkeyIssue($"{label}: {result.Error}");
+            return;
+        }
+
+        _appliedHotkeys[id] = text;
+        _logger.LogInformation("Atalho {Label} registrado como {Gesture}.", label, gesture);
+    }
+
+    private void OnHotkeyPressed(int id)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var command = id switch
+            {
+                HotkeyToggleRecording => _viewModel.ToggleRecordingCommand,
+                HotkeyTogglePause => _viewModel.TogglePauseCommand,
+                HotkeyScreenshot => _viewModel.ScreenshotCommand,
+                _ => null
+            };
+            _logger.LogInformation("Atalho global {Id} pressionado; estado {State}; pode executar {CanExecute}.",
+                id, _viewModel.CurrentRecordingState, command?.CanExecute(null));
+            if (command?.CanExecute(null) == true) command.Execute(null);
+        });
+    }
+
     private void SelectRegion(object sender, RoutedEventArgs e)
     {
         var screen = Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);

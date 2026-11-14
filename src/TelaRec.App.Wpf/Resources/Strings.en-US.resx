@@ -15,4 +15,20 @@
   <data name="ClickEffects"><value>Click effects</value></data><data name="EnableClickEffects"><value>Highlight clicks</value></data>
   <data name="StartHint"><value>Click the Record button below to start capturing.</value></data>
   <data name="ScheduleStart"><value>Start</value></data><data name="ScheduleMinutes"><value>Duration (min)</value></data><data name="Schedule"><value>Schedule</value></data>
+  <data name="Screenshot"><value>Take screenshot</value></data>
+  <data name="ScreenshotHint"><value>Saves a PNG of the monitor under the cursor to the output folder.</value></data>
+  <data name="Preset"><value>Preset</value></data><data name="CustomPreset"><value>Custom</value></data><data name="Quality"><value>Quality</value></data>
+  <data name="QualityHint"><value>Changing quality recalculates the suggested bitrate. You can still edit it manually.</value></data>
+  <data name="ToggleRecordingHotkey"><value>Record/stop hotkey</value></data>
+  <data name="TogglePauseHotkey"><value>Pause/resume hotkey</value></data>
+  <data name="ScreenshotHotkey"><value>Screenshot hotkey</value></data>
+  <data name="ScreenshotSaved"><value>Screenshot saved: {0}</value></data>
+  <data name="ScreenshotFailed"><value>Could not capture the screen.</value></data>
+  <data name="HotkeyInvalid"><value>Invalid hotkey: {0}. Use combinations such as Ctrl+Alt+R.</value></data>
+  <data name="HotkeyDuplicate"><value>The {0} hotkey is already registered by another TelaRec action.</value></data>
+  <data name="HotkeyDuplicateConflict"><value>Use different hotkeys for recording, pausing, and screenshots.</value></data>
+  <data name="HotkeyInUse"><value>The {0} hotkey is already in use by another program.</value></data>
+  <data name="HotkeyInvalidFormat"><value>Enter a valid combination, such as Ctrl+Alt+R.</value></data>
+  <data name="HotkeyServiceUnavailable"><value>The global hotkey service is unavailable.</value></data>
+  <data name="SettingsSaved"><value>Settings saved.</value></data>
 </root>

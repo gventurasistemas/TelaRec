@@ -15,6 +15,7 @@ public sealed class TelaRecSettings
     public string Quality { get; set; } = "Alta";
     public string ToggleRecordingHotkey { get; set; } = "Ctrl+Alt+R";
     public string TogglePauseHotkey { get; set; } = "Ctrl+Alt+P";
+    public string ScreenshotHotkey { get; set; } = "Ctrl+Alt+S";
     public string LastCaptureMode { get; set; } = "Tela inteira";
     public bool ShowCursor { get; set; } = true;
     public bool ShowClickEffects { get; set; } = false;

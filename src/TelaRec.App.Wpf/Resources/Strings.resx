@@ -15,4 +15,20 @@
   <data name="ClickEffects"><value>Efeitos de clique</value></data><data name="EnableClickEffects"><value>Destacar cliques</value></data>
   <data name="StartHint"><value>Clique no botão Gravar (abaixo) para iniciar a captura.</value></data>
   <data name="ScheduleStart"><value>Início</value></data><data name="ScheduleMinutes"><value>Duração (min)</value></data><data name="Schedule"><value>Agendar</value></data>
+  <data name="Screenshot"><value>Capturar tela</value></data>
+  <data name="ScreenshotHint"><value>Salva um PNG do monitor sob o cursor na pasta de saída.</value></data>
+  <data name="Preset"><value>Preset</value></data><data name="CustomPreset"><value>Personalizado</value></data><data name="Quality"><value>Qualidade</value></data>
+  <data name="QualityHint"><value>Ao mudar a qualidade, o bitrate sugerido é recalculado. Você ainda pode editá-lo manualmente.</value></data>
+  <data name="ToggleRecordingHotkey"><value>Atalho gravar/parar</value></data>
+  <data name="TogglePauseHotkey"><value>Atalho pausar/retomar</value></data>
+  <data name="ScreenshotHotkey"><value>Atalho capturar tela</value></data>
+  <data name="ScreenshotSaved"><value>Captura salva: {0}</value></data>
+  <data name="ScreenshotFailed"><value>Não foi possível capturar a tela.</value></data>
+  <data name="HotkeyInvalid"><value>Atalho inválido: {0}. Use combinações como Ctrl+Alt+R.</value></data>
+  <data name="HotkeyDuplicate"><value>O atalho {0} já está registrado por outra ação do TelaRec.</value></data>
+  <data name="HotkeyDuplicateConflict"><value>Use atalhos diferentes para gravar, pausar e capturar a tela.</value></data>
+  <data name="HotkeyInUse"><value>O atalho {0} já está em uso por outro programa.</value></data>
+  <data name="HotkeyInvalidFormat"><value>Informe uma combinação válida, como Ctrl+Alt+R.</value></data>
+  <data name="HotkeyServiceUnavailable"><value>O serviço de atalhos globais não está disponível.</value></data>
+  <data name="SettingsSaved"><value>Configurações salvas.</value></data>
 </root>

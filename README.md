@@ -36,6 +36,26 @@ Com **Destacar cliques** (`ShowClickEffects`) ativo, um hook global passivo `WH_
 
 Os textos da WPF usam recursos em Resources/Strings.resx (pt-BR padrão) e Resources/Strings.en-US.resx. A cultura da interface segue a cultura de interface do Windows/.NET.
 
+## Screenshots, presets e atalhos
+
+**Capturar tela** (botão azul ou `Ctrl+Alt+S`) salva um PNG do monitor sob o cursor na pasta de saída. `ScreenshotService` também aceita `ScreenshotScope.AllMonitors` para gerar um arquivo por monitor, com sufixo numérico. O caminho é informado no status e nos diagnósticos.
+
+O seletor de **Preset** aplica resolução, FPS, qualidade e bitrate de uma vez:
+
+- **Tutorial 1080p:** 1920×1080, 30 FPS, qualidade alta.
+- **Leve 720p:** 1280×720, 30 FPS, qualidade média.
+- **Alta qualidade 60 FPS:** 1920×1080, 60 FPS, qualidade alta.
+
+Ao editar manualmente resolução, FPS, qualidade ou bitrate, o preset muda para **Personalizado**. A escolha é persistida em `settings.json`. O nível de **Qualidade** (Alta/Média/Baixa) recalcula o bitrate sugerido por resolução e FPS; o campo de bitrate continua editável.
+
+Os atalhos globais são configuráveis na aba Configurações e aplicados sem reiniciar o app:
+
+- **Gravar/parar** (`Ctrl+Alt+R`): alterna entre iniciar e parar.
+- **Pausar/retomar** (`Ctrl+Alt+P`): alterna entre pausar e retomar.
+- **Capturar tela** (`Ctrl+Alt+S`): salva o PNG.
+
+O parser em `TelaRec.Core.Input.HotkeyGesture` aceita combinações como `Ctrl+Alt+Shift+F9`. Se outro programa já usa a combinação, `RegisterHotKey` falha e o TelaRec mostra a mensagem de conflito no status e nos diagnósticos, mantendo o restante dos atalhos funcionando. O cabeçalho acompanha contêiner, codec, resolução e FPS selecionados (por exemplo, `MKV • H.264 • 1920×1080 • 30 FPS` ou `GIF • GIF • 1280×720 • 30 FPS`).
+
 ## Confiabilidade
 
 Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. A recuperação na abertura seguinte existe para encerramentos abruptos (queda do processo ou desligamento): remove somente temporários partial.mp4 declarados no journal e no mesmo diretório do arquivo final; caminhos externos ou inválidos são preservados. Quando a própria gravação trata a falha, o temporário é apagado na hora e o journal não é reaproveitado.
@@ -79,7 +99,9 @@ dotnet test TelaRec.sln
 dotnet run --project src/TelaRec.App.Wpf
 ```
 
-Na interface, escolha o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região** e arraste o retângulo. A seleção visual fecha antes do início da captura.
+Na interface, escolha o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região** e arraste o retângulo. A seleção visual fecha antes do início da captura. A janela/região escolhida não sobrevive ao reinício; nesse caso o TelaRec volta para **Tela inteira** para não deixar o botão Gravar em um estado inválido.
+
+Atalhos padrão: `Ctrl+Alt+R` inicia/para, `Ctrl+Alt+P` pausa/retoma e `Ctrl+Alt+S` captura a tela. Todos podem ser alterados na aba Configurações e passam a valer ao salvar.
 
 ## Validação manual
 
@@ -90,7 +112,7 @@ dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-window.mp4 --window 
 dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-clicks.mp4 --region --click-effects --cursor-off
 ```
 
-O smoke test toca um sinal baixo de 440 Hz por cinco segundos quando `--audio` está presente. `--silent` testa a geração de AAC durante silêncio. `--region` usa uma área de 641×481 pixels e confirma a saída H.264 640×480. O teste de janela captura a janela em primeiro plano. `--click-effects` ativa o destaque de cliques e `--cursor-off` grava sem cursor, úteis para validar as opções desta versão. Os testes unitários cobrem reinício, pausa, retomada, finalização, falhas de áudio/encoder, projeção de cliques e expiração do efeito.
+O smoke test toca um sinal baixo de 440 Hz por cinco segundos quando `--audio` está presente. `--silent` testa a geração de AAC durante silêncio. `--region` usa uma área de 641×481 pixels e confirma a saída H.264 640×480. O teste de janela captura a janela em primeiro plano. `--click-effects` ativa o destaque de cliques e `--cursor-off` grava sem cursor, úteis para validar as opções desta versão. Os testes unitários cobrem reinício, pausa, retomada, finalização, falhas de áudio/encoder, projeção de cliques, expiração do efeito, parser de atalhos, mapeamento de qualidade para bitrate, presets, alternância por atalho e screenshot. A validação manual desta versão confirmou PNG gerado por `Ctrl+Alt+S`, gravação iniciada/parada por `Ctrl+Alt+R`, pausa/retomada por `Ctrl+Alt+P`, atalho personalizado persistido após reinício e aviso de conflito quando outro processo já detém a combinação.
 
 Em 13/11/2026, tela inteira, região e janela geraram MP4s decodificáveis com PyAV/FFmpeg nesta máquina. Também foram validados GIF, MKV e MOV: GIF 640×480, MKV/H.264 640×480 e MOV/H.264 640×480 pelo FFprobe. No teste com sinal, os últimos quadros decodificados de vídeo e áudio ficaram separados por cerca de 53 ms. Esses testes usam o desktop e o dispositivo de saída desta máquina; vale repetir em outros monitores, dispositivos de áudio e drivers gráficos.
 
