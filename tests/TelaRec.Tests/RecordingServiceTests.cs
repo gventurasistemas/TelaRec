@@ -111,12 +111,32 @@ public class RecordingServiceTests
         }
         finally { Directory.Delete(folder, true); }
     }
+    [Fact]
+    public async Task Cursor_preference_is_forwarded_to_capture()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var capture = new FakeCapture();
+        await using var service = new RecordingService(capture, new FakeEncoder(), new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "cursor.mp4"), ShowCursor: false));
+            Assert.NotNull(capture.LastRequest);
+            Assert.False(capture.LastRequest!.ShowCursor);
+            await service.StopAsync();
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
     private sealed class FakeCapture : IVideoCaptureService
     {
         public event EventHandler<VideoFrame>? FrameCaptured;
         public event EventHandler<Exception>? CaptureFailed;
+        public RecordingRequest? LastRequest { get; private set; }
+        public CaptureFrameBounds? CaptureBounds { get; private set; } = new(0, 0, 1920, 1080);
         public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
         {
+            LastRequest = request;
             var ticks = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
             FrameCaptured?.Invoke(this, new VideoFrame(new byte[16], 2, 2, 8, TimeSpan.FromTicks(ticks)));
             return Task.CompletedTask;

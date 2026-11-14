@@ -32,6 +32,8 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="130" />
@@ -54,6 +56,10 @@
                 <Button Content="Selecionar janela" Click="SelectWindow" Padding="8,4" Margin="0,0,8,0"/>
                 <Button Content="Selecionar região" Click="SelectRegion" Padding="8,4"/>
             </StackPanel>
+            <TextBlock Grid.Row="5" Text="{x:Static resources:Strings.Cursor}" VerticalAlignment="Center" Margin="0,16,0,0" FontWeight="SemiBold" Foreground="#DDE3ED" />
+            <CheckBox Grid.Row="5" Grid.Column="1" Content="{x:Static resources:Strings.ShowCursor}" IsChecked="{Binding ShowCursor}" Margin="0,16,0,0" VerticalAlignment="Center" Foreground="#DDE3ED" />
+            <TextBlock Grid.Row="6" Text="{x:Static resources:Strings.ClickEffects}" VerticalAlignment="Center" Margin="0,16,0,0" FontWeight="SemiBold" Foreground="#DDE3ED" />
+            <CheckBox Grid.Row="6" Grid.Column="1" Content="{x:Static resources:Strings.EnableClickEffects}" IsChecked="{Binding ShowClickEffects}" Margin="0,16,0,0" VerticalAlignment="Center" Foreground="#DDE3ED" />
         </Grid></TabItem>
         <TabItem Header="{x:Static resources:Strings.Settings}"><ScrollViewer VerticalScrollBarVisibility="Auto"><Grid Margin="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <TextBlock Text="Formato" Foreground="#DDE3ED"/><ComboBox Grid.Column="1" Width="170" HorizontalAlignment="Left" Margin="110,0,0,0" SelectedValue="{Binding OutputFormat}" SelectedValuePath="Content"><ComboBoxItem Content="MP4"/><ComboBoxItem Content="MKV"/><ComboBoxItem Content="MOV"/><ComboBoxItem Content="GIF"/></ComboBox>

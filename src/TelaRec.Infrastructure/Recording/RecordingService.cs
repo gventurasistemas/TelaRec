@@ -20,6 +20,7 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
     private readonly IVideoFrameComposer _composer;
     private readonly IRecordingSessionJournal? _journal;
     private readonly IRecordingDiagnostics? _diagnostics;
+    private readonly IClickCaptureService? _clickCapture;
     private readonly RecordingStateMachine _machine = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _disposeSync = new();
@@ -42,14 +43,22 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
     public RecordingStatus Status => _status;
     public event EventHandler<RecordingStatus>? StatusChanged;
 
-    public RecordingService(IVideoCaptureService capture, IVideoEncoderService encoder, IAudioCaptureService audio, ILogger<RecordingService> logger, IRecordingExporterFactory? exporters = null, IFrameScaler? scaler = null, IWebcamCaptureService? webcam = null, IVideoFrameComposer? composer = null, IRecordingSessionJournal? journal = null, IRecordingDiagnostics? diagnostics = null)
+    public RecordingService(IVideoCaptureService capture, IVideoEncoderService encoder, IAudioCaptureService audio, ILogger<RecordingService> logger, IRecordingExporterFactory? exporters = null, IFrameScaler? scaler = null, IWebcamCaptureService? webcam = null, IVideoFrameComposer? composer = null, IRecordingSessionJournal? journal = null, IRecordingDiagnostics? diagnostics = null, IClickCaptureService? clickCapture = null)
     {
-        _capture = capture; _encoder = encoder; _audio = audio; _logger = logger; _exporters = exporters; _scaler = scaler ?? new BgraFrameScaler(); _webcam = webcam; _composer = composer ?? new VideoFrameComposer(); _journal = journal; _diagnostics = diagnostics;
+        _capture = capture; _encoder = encoder; _audio = audio; _logger = logger; _exporters = exporters; _scaler = scaler ?? new BgraFrameScaler(); _webcam = webcam; _composer = composer ?? new VideoFrameComposer(); _journal = journal; _diagnostics = diagnostics; _clickCapture = clickCapture;
         _capture.FrameCaptured += OnFrameCaptured;
         _capture.CaptureFailed += OnVideoFailed;
         _audio.AudioCaptured += OnAudioCaptured;
         _audio.CaptureFailed += OnAudioFailed;
         if (_webcam is not null) { _webcam.FrameCaptured += OnWebcamFrame; _webcam.CaptureFailed += OnWebcamFailed; }
+        if (_clickCapture is not null) _clickCapture.ClickCaptured += OnClickCaptured;
+    }
+    private void OnClickCaptured(object? sender, ClickEvent click)
+    {
+        if (_paused || _machine.State != RecordingState.Recording) return;
+        var timestamp = Normalize(click.Timestamp);
+        _composer.AddClickEffect(click with { Timestamp = timestamp });
+        _logger.LogDebug("Efeito de clique em ({X},{Y}) no instante {Timestamp}", click.ScreenX, click.ScreenY, timestamp);
     }
     private void OnWebcamFrame(object? sender, VideoFrame frame)
     {
@@ -110,6 +119,9 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
             await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, Profile = RecordingProfile.Mvp with { FramesPerSecond = _profile.FramesPerSecond, Bitrate = _profile.Bitrate, Width = _profile.Width, Height = _profile.Height } }, cancellationToken).ConfigureAwait(false);
             _encodeTask = Task.Run(() => EncodeLoopAsync(_queue.Reader), CancellationToken.None);
             await _capture.StartAsync(request, cancellationToken).ConfigureAwait(false);
+            _composer.SetClickEffectContext(_capture.CaptureBounds);
+            if (request.EffectiveOverlays.EffectiveClickEffects.Enabled)
+                StartClickCapture();
             if (request.EffectiveOverlays.Webcam.Enabled && _webcam is not null)
             {
                 try { await _webcam.StartAsync(request.EffectiveOverlays.Webcam, cancellationToken).ConfigureAwait(false); }
@@ -267,6 +279,12 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
             }
         }
     }
+    private void StartClickCapture()
+    {
+        if (_clickCapture is null) return;
+        try { _clickCapture.Start(); }
+        catch (Exception exception) { _logger.LogWarning(exception, "Hook de cliques não iniciado; gravando sem efeitos de clique"); }
+    }
     private void ScheduleFailedCleanup()
     {
         if (_failedCleanupTask is not null) return;
@@ -304,6 +322,7 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
     }
     private async Task CleanupAsync()
     {
+        try { _clickCapture?.Stop(); } catch (Exception e) { _logger.LogWarning(e, "Falha ao liberar hook de cliques"); }
         _queue?.Writer.TryComplete();
         try { await _capture.StopAsync().ConfigureAwait(false); } catch (Exception e) { _logger.LogWarning(e, "Falha ao liberar captura"); }
         try { if (_webcam is not null) await _webcam.StopAsync().ConfigureAwait(false); } catch (Exception e) { _logger.LogWarning(e, "Falha ao liberar webcam"); }
@@ -332,6 +351,7 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
             _audio.AudioCaptured -= OnAudioCaptured;
             _audio.CaptureFailed -= OnAudioFailed;
             if (_webcam is not null) { _webcam.FrameCaptured -= OnWebcamFrame; _webcam.CaptureFailed -= OnWebcamFailed; await _webcam.DisposeAsync().ConfigureAwait(false); }
+            if (_clickCapture is not null) _clickCapture.ClickCaptured -= OnClickCaptured;
             await _capture.DisposeAsync().ConfigureAwait(false);
             await _audio.DisposeAsync().ConfigureAwait(false);
             if (_composer is IDisposable disposableComposer) disposableComposer.Dispose();

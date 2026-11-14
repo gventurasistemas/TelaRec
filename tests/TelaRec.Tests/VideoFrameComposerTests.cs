@@ -29,4 +29,37 @@ public sealed class VideoFrameComposerTests
 
         Assert.Contains(output.Pixels, pixel => pixel != 0);
     }
+
+    [Fact]
+    public void Click_effect_is_drawn_and_expires()
+    {
+        using var composer = new VideoFrameComposer();
+        composer.Configure(new RecordingOverlaySettings(
+            new WatermarkSettings(),
+            new WebcamOverlaySettings(),
+            new ClickEffectSettings(Enabled: true, Radius: 10, DurationSeconds: 0.5, Color: "#FF0000", Opacity: 1)));
+        composer.SetClickEffectContext(new CaptureFrameBounds(0, 0, 100, 100));
+        composer.AddClickEffect(new ClickEvent(50, 50, TimeSpan.Zero));
+
+        var drawn = composer.Compose(new VideoFrame(new byte[100 * 100 * 4], 100, 100, 400, TimeSpan.FromSeconds(0.1)));
+        Assert.Contains(drawn.Pixels, pixel => pixel != 0);
+
+        var expired = composer.Compose(new VideoFrame(new byte[100 * 100 * 4], 100, 100, 400, TimeSpan.FromSeconds(2)));
+        Assert.All(expired.Pixels, pixel => Assert.Equal(0, pixel));
+    }
+
+    [Fact]
+    public void Click_effect_is_ignored_when_disabled()
+    {
+        using var composer = new VideoFrameComposer();
+        composer.Configure(new RecordingOverlaySettings(
+            new WatermarkSettings(),
+            new WebcamOverlaySettings(),
+            new ClickEffectSettings(Enabled: false)));
+        composer.SetClickEffectContext(new CaptureFrameBounds(0, 0, 100, 100));
+        composer.AddClickEffect(new ClickEvent(50, 50, TimeSpan.Zero));
+
+        var output = composer.Compose(new VideoFrame(new byte[100 * 100 * 4], 100, 100, 400, TimeSpan.FromSeconds(0.1)));
+        Assert.All(output.Pixels, pixel => Assert.Equal(0, pixel));
+    }
 }

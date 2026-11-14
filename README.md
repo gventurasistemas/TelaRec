@@ -28,6 +28,12 @@ O compositor recebe o quadro de tela já redimensionado e aplica os overlays ant
 
 A webcam é opcional. Se o dispositivo não abrir ou parar, o TelaRec registra a falha e continua gravando a tela. O compositor está no Infrastructure; a WPF apenas persiste e envia as configurações.
 
+## Cursor e efeitos de clique
+
+O cursor é incluído por padrão. A opção **Mostrar cursor** (`ShowCursor`) decide se ele aparece no vídeo e a escolha é aplicada na próxima gravação, inclusive agendada, sem reiniciar o aplicativo.
+
+Com **Destacar cliques** (`ShowClickEffects`) ativo, um hook global passivo `WH_MOUSE_LL` observa cliques apenas durante a gravação. Ele sempre chama `CallNextHookEx`, portanto nenhum clique do usuário é bloqueado ou engolido, e é desinstalado ao parar a gravação ou fechar o aplicativo. Cada clique é convertido das coordenadas físicas da tela para o quadro de saída considerando o recorte da região, o deslocamento de monitores secundários, o DPI por monitor e a escala do perfil. O compositor desenha um halo/ripple antes do encoder e remove o efeito quando ele expira, sem bloquear a thread de interface. Duração (0,6 s), raio (28 px) e cor (#FF3B30) têm padrões seguros persistidos em `settings.json`.
+
 Os textos da WPF usam recursos em Resources/Strings.resx (pt-BR padrão) e Resources/Strings.en-US.resx. A cultura da interface segue a cultura de interface do Windows/.NET.
 
 ## Confiabilidade
@@ -81,9 +87,10 @@ Na interface, escolha o modo. Em **Janela selecionada**, clique em **Selecionar 
 dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-display.mp4 --audio
 dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-region.mp4 --audio --silent --region
 dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-window.mp4 --window --short
+dotnet run --project tools/TelaRec.Smoke -- C:\Temp\telarec-clicks.mp4 --region --click-effects --cursor-off
 ```
 
-O smoke test toca um sinal baixo de 440 Hz por cinco segundos quando `--audio` está presente. `--silent` testa a geração de AAC durante silêncio. `--region` usa uma área de 641×481 pixels e confirma a saída H.264 640×480. O teste de janela captura a janela em primeiro plano. Os testes unitários cobrem reinício, pausa, retomada, finalização e falhas de áudio/encoder.
+O smoke test toca um sinal baixo de 440 Hz por cinco segundos quando `--audio` está presente. `--silent` testa a geração de AAC durante silêncio. `--region` usa uma área de 641×481 pixels e confirma a saída H.264 640×480. O teste de janela captura a janela em primeiro plano. `--click-effects` ativa o destaque de cliques e `--cursor-off` grava sem cursor, úteis para validar as opções desta versão. Os testes unitários cobrem reinício, pausa, retomada, finalização, falhas de áudio/encoder, projeção de cliques e expiração do efeito.
 
 Em 13/11/2026, tela inteira, região e janela geraram MP4s decodificáveis com PyAV/FFmpeg nesta máquina. Também foram validados GIF, MKV e MOV: GIF 640×480, MKV/H.264 640×480 e MOV/H.264 640×480 pelo FFprobe. No teste com sinal, os últimos quadros decodificados de vídeo e áudio ficaram separados por cerca de 53 ms. Esses testes usam o desktop e o dispositivo de saída desta máquina; vale repetir em outros monitores, dispositivos de áudio e drivers gráficos.
 

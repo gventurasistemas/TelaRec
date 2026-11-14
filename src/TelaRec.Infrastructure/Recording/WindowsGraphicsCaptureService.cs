@@ -32,8 +32,10 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
     private System.Threading.Timer? _repeatTimer;
     private byte[]? _lastPixels;
     private int _lastWidth, _lastHeight, _lastStride;
+    private CaptureFrameBounds? _captureBounds;
     public event EventHandler<VideoFrame>? FrameCaptured;
     public event EventHandler<Exception>? CaptureFailed;
+    public CaptureFrameBounds? CaptureBounds { get { lock (_sync) return _captureBounds; } }
 
     public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
     {
@@ -48,7 +50,13 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                 var screens = System.Windows.Forms.Screen.AllScreens.OrderByDescending(screen => screen.Primary).ToArray();
                 if (screens.Length == 0) throw new InvalidOperationException("Nenhum monitor disponível.");
                 if (target is CaptureTarget.Window window)
+                {
                     _item = Direct3D11Interop.CreateItemForWindow(window.Handle);
+                    var windowBounds = GetWindowBounds(window.Handle);
+                    _captureBounds = windowBounds.IsEmpty
+                        ? new CaptureFrameBounds(0, 0, _item.Size.Width, _item.Size.Height)
+                        : new CaptureFrameBounds(windowBounds.Left, windowBounds.Top, windowBounds.Width, windowBounds.Height);
+                }
                 else
                 {
                     var screen = target switch
@@ -62,6 +70,11 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                         var selected = System.Drawing.Rectangle.Intersect(screen.Bounds, new System.Drawing.Rectangle(region.X, region.Y, region.Width, region.Height));
                         if (selected.IsEmpty) throw new ArgumentException("Região fora do monitor selecionado.");
                         _crop = new System.Drawing.Rectangle(selected.X - screen.Bounds.X, selected.Y - screen.Bounds.Y, selected.Width, selected.Height);
+                        _captureBounds = new CaptureFrameBounds(selected.X, selected.Y, selected.Width, selected.Height);
+                    }
+                    else
+                    {
+                        _captureBounds = new CaptureFrameBounds(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height);
                     }
                     _item = Direct3D11Interop.CreateItemForMonitor(MonitorFromPoint(new Point(screen.Bounds.Left + screen.Bounds.Width / 2, screen.Bounds.Top + screen.Bounds.Height / 2), 2));
                 }
@@ -73,7 +86,7 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                 if (_outputWidth <= 0 || _outputHeight <= 0) throw new ArgumentException("Área de captura muito pequena.");
                 _pool.FrameArrived += OnFrameArrived;
                 _session = _pool.CreateCaptureSession(_item);
-                _session.IsCursorCaptureEnabled = true;
+                _session.IsCursorCaptureEnabled = request.ShowCursor;
                 _running = true;
                 _session.StartCapture();
                 _repeatTimer = new System.Threading.Timer(RepeatLastFrame, null, 1000 / _fps, 1000 / _fps);
@@ -190,9 +203,20 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
         _context?.Dispose(); _context = null;
         _device?.Dispose(); _device = null;
         _crop = null; _lastFrameTicks = 0; _lastPixels = null;
+        _captureBounds = null;
         _resizeQueued = false; _poolWidth = _poolHeight = _outputWidth = _outputHeight = 0;
     }
+    private static System.Drawing.Rectangle GetWindowBounds(nint handle)
+    {
+        if (!GetWindowRect(handle, out var rectangle))
+            return System.Drawing.Rectangle.Empty;
+        return System.Drawing.Rectangle.FromLTRB(rectangle.Left, rectangle.Top, rectangle.Right, rectangle.Bottom);
+    }
     public ValueTask DisposeAsync() { lock (_sync) Release(); return ValueTask.CompletedTask; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(nint hWnd, out Rect rectangle);
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct Point(int X, int Y);
     [DllImport("user32.dll")]

@@ -11,4 +11,6 @@
   <data name="Ready"><value>Pronto para gravar a tela principal.</value></data><data name="RecordingComplete"><value>Gravação concluída.</value></data><data name="RecordingPaused"><value>Gravação pausada.</value></data>
   <data name="UnexpectedErrorTitle"><value>Erro inesperado</value></data>
   <data name="UnexpectedErrorMessage"><value>O TelaRec encontrou um erro inesperado. Os detalhes foram registrados em %LOCALAPPDATA%\TelaRec\logs.</value></data>
+  <data name="Cursor"><value>Cursor</value></data><data name="ShowCursor"><value>Mostrar cursor</value></data>
+  <data name="ClickEffects"><value>Efeitos de clique</value></data><data name="EnableClickEffects"><value>Destacar cliques</value></data>
 </root>

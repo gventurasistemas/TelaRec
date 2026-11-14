@@ -28,4 +28,8 @@ public static class Strings
     public static string Position => Get(nameof(Position));
     public static string Opacity => Get(nameof(Opacity));
     public static string Scale => Get(nameof(Scale));
+    public static string Cursor => Get(nameof(Cursor));
+    public static string ShowCursor => Get(nameof(ShowCursor));
+    public static string ClickEffects => Get(nameof(ClickEffects));
+    public static string EnableClickEffects => Get(nameof(EnableClickEffects));
 }
