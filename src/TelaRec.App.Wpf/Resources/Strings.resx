@@ -13,4 +13,6 @@
   <data name="UnexpectedErrorMessage"><value>O TelaRec encontrou um erro inesperado. Os detalhes foram registrados em %LOCALAPPDATA%\TelaRec\logs.</value></data>
   <data name="Cursor"><value>Cursor</value></data><data name="ShowCursor"><value>Mostrar cursor</value></data>
   <data name="ClickEffects"><value>Efeitos de clique</value></data><data name="EnableClickEffects"><value>Destacar cliques</value></data>
+  <data name="StartHint"><value>Clique no botão Gravar (abaixo) para iniciar a captura.</value></data>
+  <data name="ScheduleStart"><value>Início</value></data><data name="ScheduleMinutes"><value>Duração (min)</value></data><data name="Schedule"><value>Agendar</value></data>
 </root>

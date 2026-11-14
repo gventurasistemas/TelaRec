@@ -32,4 +32,8 @@ public static class Strings
     public static string ShowCursor => Get(nameof(ShowCursor));
     public static string ClickEffects => Get(nameof(ClickEffects));
     public static string EnableClickEffects => Get(nameof(EnableClickEffects));
+    public static string StartHint => Get(nameof(StartHint));
+    public static string ScheduleStart => Get(nameof(ScheduleStart));
+    public static string ScheduleMinutes => Get(nameof(ScheduleMinutes));
+    public static string Schedule => Get(nameof(Schedule));
 }

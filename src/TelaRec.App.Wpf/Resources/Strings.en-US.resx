@@ -13,4 +13,6 @@
   <data name="UnexpectedErrorMessage"><value>TelaRec encountered an unexpected error. Details were written to %LOCALAPPDATA%\TelaRec\logs.</value></data>
   <data name="Cursor"><value>Cursor</value></data><data name="ShowCursor"><value>Show cursor</value></data>
   <data name="ClickEffects"><value>Click effects</value></data><data name="EnableClickEffects"><value>Highlight clicks</value></data>
+  <data name="StartHint"><value>Click the Record button below to start capturing.</value></data>
+  <data name="ScheduleStart"><value>Start</value></data><data name="ScheduleMinutes"><value>Duration (min)</value></data><data name="Schedule"><value>Schedule</value></data>
 </root>

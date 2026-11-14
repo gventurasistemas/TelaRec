@@ -100,9 +100,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => _settings.RecordingContainer.ToString().ToUpperInvariant();
         set
         {
-            if (Enum.TryParse<RecordingContainer>(value, true, out var container)) { _settings.RecordingContainer = container; OnPropertyChanged(); }
+            if (Enum.TryParse<RecordingContainer>(value, true, out var container)) { _settings.RecordingContainer = container; OnPropertyChanged(); OnPropertyChanged(nameof(FormatSummary)); }
         }
     }
+    /// <summary>Resumo exibido no cartão de status: recipiente, codec e resolução efetiva.</summary>
+    public string FormatSummary => $"{OutputFormat} • H.264 • {_settings.OutputWidth}×{_settings.OutputHeight}";
     public string OutputResolution
     {
         get => $"{_settings.OutputWidth}×{_settings.OutputHeight}";
@@ -111,7 +113,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var parts = value.Split('×', 'x', 'X');
             if (parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height))
             {
-                _settings.OutputWidth = width; _settings.OutputHeight = height; OnPropertyChanged();
+                _settings.OutputWidth = width; _settings.OutputHeight = height; OnPropertyChanged(); OnPropertyChanged(nameof(FormatSummary));
             }
         }
     }
@@ -149,6 +151,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowClickEffects));
         OnPropertyChanged(nameof(OutputFormat));
         OnPropertyChanged(nameof(OutputResolution));
+        OnPropertyChanged(nameof(FormatSummary));
         OnPropertyChanged(nameof(VideoBitrate));
         OnPropertyChanged(nameof(WebcamEnabled)); OnPropertyChanged(nameof(WebcamDeviceIndex)); OnPropertyChanged(nameof(WebcamScale));
         OnPropertyChanged(nameof(WatermarkText)); OnPropertyChanged(nameof(WatermarkImagePath)); OnPropertyChanged(nameof(WatermarkOpacity)); OnPropertyChanged(nameof(WatermarkScale));
