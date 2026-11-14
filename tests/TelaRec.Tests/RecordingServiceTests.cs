@@ -88,6 +88,29 @@ public class RecordingServiceTests
         Assert.Equal(RecordingState.Failed, service.Status.State);
         Assert.False(File.Exists(path));
     }
+    [Fact]
+    public async Task DisposeAsync_is_idempotent()
+    {
+        var service = new RecordingService(new FakeCapture(), new FakeEncoder(), new FakeAudio(), NullLogger<RecordingService>.Instance);
+        await service.DisposeAsync();
+        await service.DisposeAsync();
+    }
+    [Fact]
+    public async Task DisposeAsync_during_active_recording_removes_temporary_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var service = new RecordingService(new FakeCapture(), new FakeEncoder { CreateFileOnStart = true }, new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "active.mp4")));
+            Assert.Equal(RecordingState.Recording, service.Status.State);
+            Assert.Single(Directory.GetFiles(folder, "*.partial.mp4"));
+            await service.DisposeAsync();
+            Assert.Empty(Directory.GetFiles(folder, "*.partial.mp4"));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
     private sealed class FakeCapture : IVideoCaptureService
     {
         public event EventHandler<VideoFrame>? FrameCaptured;
@@ -120,6 +143,7 @@ public class RecordingServiceTests
     private sealed class FakeEncoder : IVideoEncoderService
     {
         public bool FailOnStart;
+        public bool CreateFileOnStart;
         public int VideoFrames;
         public int Completed;
         private string? _path;
@@ -127,6 +151,7 @@ public class RecordingServiceTests
         {
             if (FailOnStart) throw new InvalidOperationException("Encoder indisponível");
             _path = request.OutputPath;
+            if (CreateFileOnStart) File.WriteAllBytes(_path, [1, 2, 3]);
             return Task.CompletedTask;
         }
         public Task EncodeAsync(VideoFrame frame, CancellationToken cancellationToken = default) { VideoFrames++; return Task.CompletedTask; }

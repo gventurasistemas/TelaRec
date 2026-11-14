@@ -9,4 +9,6 @@
   <data name="WatermarkText"><value>Texto da marca</value></data><data name="WatermarkImage"><value>PNG da marca</value></data>
   <data name="Position"><value>Posição</value></data><data name="Opacity"><value>Opacidade</value></data><data name="Scale"><value>Escala</value></data>
   <data name="Ready"><value>Pronto para gravar a tela principal.</value></data><data name="RecordingComplete"><value>Gravação concluída.</value></data><data name="RecordingPaused"><value>Gravação pausada.</value></data>
+  <data name="UnexpectedErrorTitle"><value>Erro inesperado</value></data>
+  <data name="UnexpectedErrorMessage"><value>O TelaRec encontrou um erro inesperado. Os detalhes foram registrados em %LOCALAPPDATA%\TelaRec\logs.</value></data>
 </root>

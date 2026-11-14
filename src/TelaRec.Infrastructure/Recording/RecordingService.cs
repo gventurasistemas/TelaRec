@@ -22,6 +22,8 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
     private readonly IRecordingDiagnostics? _diagnostics;
     private readonly RecordingStateMachine _machine = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _disposeSync = new();
+    private Task? _disposeTask;
     private Channel<Packet>? _queue;
     private Task? _encodeTask;
     private Task? _failedCleanupTask;
@@ -312,7 +314,13 @@ public sealed class RecordingService : IRecordingService, IAsyncDisposable
         _queue = null; _encodeTask = null; _temporaryPath = null; _outputPath = null;
     }
     private static long NowTicks() => (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposeSync) _disposeTask ??= DisposeCoreAsync();
+        return new ValueTask(_disposeTask);
+    }
+
+    private async Task DisposeCoreAsync()
     {
         if (_failedCleanupTask is not null) await _failedCleanupTask.ConfigureAwait(false);
         await _gate.WaitAsync().ConfigureAwait(false);
