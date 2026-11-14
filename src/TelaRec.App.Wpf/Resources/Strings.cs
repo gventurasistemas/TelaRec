@@ -36,4 +36,22 @@ public static class Strings
     public static string ScheduleStart => Get(nameof(ScheduleStart));
     public static string ScheduleMinutes => Get(nameof(ScheduleMinutes));
     public static string Schedule => Get(nameof(Schedule));
+    public static string Screenshot => Get(nameof(Screenshot));
+    public static string ScreenshotHint => Get(nameof(ScreenshotHint));
+    public static string Preset => Get(nameof(Preset));
+    public static string CustomPreset => Get(nameof(CustomPreset));
+    public static string Quality => Get(nameof(Quality));
+    public static string ToggleRecordingHotkey => Get(nameof(ToggleRecordingHotkey));
+    public static string TogglePauseHotkey => Get(nameof(TogglePauseHotkey));
+    public static string ScreenshotHotkey => Get(nameof(ScreenshotHotkey));
+    public static string ScreenshotSaved => Get(nameof(ScreenshotSaved));
+    public static string ScreenshotFailed => Get(nameof(ScreenshotFailed));
+    public static string HotkeyInvalid => Get(nameof(HotkeyInvalid));
+    public static string HotkeyDuplicate => Get(nameof(HotkeyDuplicate));
+    public static string HotkeyDuplicateConflict => Get(nameof(HotkeyDuplicateConflict));
+    public static string HotkeyInUse => Get(nameof(HotkeyInUse));
+    public static string HotkeyInvalidFormat => Get(nameof(HotkeyInvalidFormat));
+    public static string HotkeyServiceUnavailable => Get(nameof(HotkeyServiceUnavailable));
+    public static string SettingsSaved => Get(nameof(SettingsSaved));
+    public static string QualityHint => Get(nameof(QualityHint));
 }
