@@ -1,0 +1,13 @@
+<Window x:Class="TelaRec.App.Wpf.CapturePreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="760" Height="500" MinWidth="420" MinHeight="300"
+        WindowStartupLocation="CenterOwner" Background="#111827">
+    <Grid Margin="12">
+        <Border BorderBrush="#334155" BorderThickness="1" Background="#020617" CornerRadius="6">
+            <Image x:Name="PreviewImage" Stretch="Uniform" SnapsToDevicePixels="True" />
+        </Border>
+        <TextBlock x:Name="StatusText" Foreground="#E5E7EB" Background="#B0000000" Padding="8"
+                   HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8" />
+    </Grid>
+</Window>

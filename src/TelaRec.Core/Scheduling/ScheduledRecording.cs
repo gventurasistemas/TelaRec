@@ -36,7 +36,9 @@ public sealed record ScheduledRecordingStatus(
 public interface IRecordingScheduler : IAsyncDisposable
 {
     IReadOnlyList<ScheduledRecordingStatus> Scheduled { get; }
+    IReadOnlyList<ScheduledRecording> ScheduledRules => [];
     event EventHandler<ScheduledRecordingStatus>? StatusChanged;
     Task ScheduleAsync(ScheduledRecording schedule, CancellationToken cancellationToken = default);
     Task CancelAsync(Guid scheduleId, CancellationToken cancellationToken = default);
+    Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

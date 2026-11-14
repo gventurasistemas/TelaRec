@@ -13,9 +13,6 @@ public sealed record RecordingProfile(RecordingContainer Container, VideoCodec V
             if (Container == RecordingContainer.Gif) return VideoCodec == VideoCodec.Gif;
             if (VideoCodec == VideoCodec.Gif) return false;
             if (Width % 2 != 0 || Height % 2 != 0) return false;
-            // O encoder nativo grava o intermediário MP4/H.264; HEVC em MP4 exigiria
-            // pós-processamento e é rejeitado até a implementação do P09.
-            if (Container == RecordingContainer.Mp4 && VideoCodec == VideoCodec.Hevc) return false;
             return VideoCodec is VideoCodec.H264 or VideoCodec.Hevc;
         }
     }

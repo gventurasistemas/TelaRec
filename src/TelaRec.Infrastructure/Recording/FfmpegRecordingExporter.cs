@@ -16,16 +16,38 @@ public sealed class FfmpegRecordingExporter(ILogger<FfmpegRecordingExporter> log
         var ffmpeg = FindFfmpeg();
         var output = Path.GetFullPath(destinationPath);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        if (File.Exists(output)) throw new IOException($"Já existe um arquivo no destino: {output}");
+        // O intermediário de Media Foundation já possui um id de sessão único.
+        // Derivar o nome do temporário de exportação dele permite ao journal
+        // removê-lo com segurança caso o processo seja encerrado durante o FFmpeg.
+        var sourceStem = Path.GetFileNameWithoutExtension(Path.GetFullPath(sourcePath));
+        var temporaryOutput = Path.Combine(
+            Path.GetDirectoryName(output)!,
+            $"{sourceStem}.export.partial{Path.GetExtension(output)}");
         var videoCodec = profile.VideoCodec == VideoCodec.Hevc ? "libx265" : "libx264";
         var arguments = profile.Container == RecordingContainer.Gif
-            ? $"-y -i {Q(sourcePath)} -vf {Q($"fps={Math.Min(profile.FramesPerSecond, 30)},scale={profile.Width}:{profile.Height}:force_original_aspect_ratio=decrease:flags=lanczos,pad={profile.Width}:{profile.Height}:(ow-iw)/2:(oh-ih)/2:color=black,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a")} -loop 0 {Q(output)}"
-            : $"-y -i {Q(sourcePath)} -map 0:v:0 -map 0:a? -vf {Q($"scale={profile.Width}:{profile.Height}:force_original_aspect_ratio=decrease:flags=lanczos,pad={profile.Width}:{profile.Height}:(ow-iw)/2:(oh-ih)/2:color=black")} -r {profile.FramesPerSecond} -c:v {videoCodec} -b:v {profile.Bitrate} -c:a aac -b:a 128k {Q(output)}";
+            ? $"-y -i {Q(sourcePath)} -vf {Q($"fps={Math.Min(profile.FramesPerSecond, 30)},scale={profile.Width}:{profile.Height}:force_original_aspect_ratio=decrease:flags=lanczos,pad={profile.Width}:{profile.Height}:(ow-iw)/2:(oh-ih)/2:color=black,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a")} -loop 0 {Q(temporaryOutput)}"
+            : $"-y -i {Q(sourcePath)} -map 0:v:0 -map 0:a? -vf {Q($"scale={profile.Width}:{profile.Height}:force_original_aspect_ratio=decrease:flags=lanczos,pad={profile.Width}:{profile.Height}:(ow-iw)/2:(oh-ih)/2:color=black")} -r {profile.FramesPerSecond} -c:v {videoCodec} -b:v {profile.Bitrate} -c:a aac -b:a 128k {Q(temporaryOutput)}";
         logger.LogInformation("Exportando {Container} para {Path}", profile.Container, output);
-        using var process = new Process { StartInfo = new ProcessStartInfo(ffmpeg, arguments) { UseShellExecute = false, RedirectStandardError = true, CreateNoWindow = true } };
-        process.Start();
-        var error = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        if (process.ExitCode != 0) throw new InvalidOperationException($"FFmpeg não conseguiu gerar {profile.Container}: {error}");
+        try
+        {
+            using var process = new Process { StartInfo = new ProcessStartInfo(ffmpeg, arguments) { UseShellExecute = false, RedirectStandardError = true, CreateNoWindow = true } };
+            process.Start();
+            var error = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            if (process.ExitCode != 0) throw new InvalidOperationException($"FFmpeg não conseguiu gerar {profile.Container}: {error}");
+            if (!File.Exists(temporaryOutput)) throw new InvalidOperationException("FFmpeg terminou sem produzir o arquivo temporário esperado.");
+            File.Move(temporaryOutput, output);
+        }
+        finally
+        {
+            if (File.Exists(temporaryOutput))
+            {
+                try { File.Delete(temporaryOutput); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
     }
     private static string FindFfmpeg()
     {

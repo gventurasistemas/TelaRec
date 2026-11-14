@@ -128,6 +128,92 @@ public class RecordingServiceTests
         finally { Directory.Delete(folder, true); }
     }
 
+    [Fact]
+    public async Task Existing_output_is_never_overwritten()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"TelaRec-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllBytesAsync(path, [9, 8, 7]);
+        await using var service = new RecordingService(new FakeCapture(), new FakeEncoder(), new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => service.StartAsync(new RecordingRequest(path)));
+            Assert.Equal(new byte[] { 9, 8, 7 }, await File.ReadAllBytesAsync(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Failed_external_export_preserves_the_valid_mp4_intermediate()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var profile = new RecordingProfile(RecordingContainer.Mkv, VideoCodec.H264, 1_000_000, 30, 2, 2);
+        await using var service = new RecordingService(
+            new FakeCapture(),
+            new FakeEncoder(),
+            new FakeAudio(),
+            NullLogger<RecordingService>.Instance,
+            new ThrowingExporterFactory());
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "clip.mkv"), Profile: profile));
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopAsync());
+
+            Assert.Contains("MP4 intermediário", error.Message);
+            Assert.False(File.Exists(Path.Combine(folder, "clip.mkv")));
+            Assert.Single(Directory.GetFiles(folder, "clip-intermediario-*.mp4"));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Microphone_and_system_are_mixed_before_encoding()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var system = new FakeAudio();
+        var microphone = new FakeMicrophone();
+        var encoder = new FakeEncoder();
+        await using var service = new RecordingService(new FakeCapture(), encoder, system, NullLogger<RecordingService>.Instance, microphone: microphone);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(
+                Path.Combine(folder, "mixed.mp4"),
+                AudioMix: new AudioMixSettings(true, true)));
+            var ticks = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+            system.Emit(new AudioFrame(Samples(10_000, 10_000), 48_000, 2, TimeSpan.FromTicks(ticks)));
+            microphone.Emit(new AudioFrame(Samples(10_000, 10_000), 48_000, 2, TimeSpan.FromTicks(ticks)));
+            await service.StopAsync();
+
+            Assert.Contains(encoder.AudioFrames, frame => BitConverter.ToInt16(frame.Pcm16, 0) == 20_000);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Microphone_failure_keeps_video_and_system_audio_running()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var system = new FakeAudio();
+        var microphone = new FakeMicrophone();
+        var encoder = new FakeEncoder();
+        await using var service = new RecordingService(new FakeCapture(), encoder, system, NullLogger<RecordingService>.Instance, microphone: microphone);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "fallback.mp4"), AudioMix: new AudioMixSettings(true, true)));
+            microphone.Fail();
+            var ticks = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+            system.Emit(new AudioFrame(Samples(8000, 8000), 48_000, 2, TimeSpan.FromTicks(ticks)));
+            await service.StopAsync();
+
+            Assert.Equal(RecordingState.Completed, service.Status.State);
+            Assert.True(File.Exists(Path.Combine(folder, "fallback.mp4")));
+            Assert.NotEmpty(encoder.AudioFrames);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
     private sealed class FakeCapture : IVideoCaptureService
     {
         public event EventHandler<VideoFrame>? FrameCaptured;
@@ -158,6 +244,18 @@ public class RecordingServiceTests
             return Task.CompletedTask;
         }
         public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Emit(AudioFrame frame) => AudioCaptured?.Invoke(this, frame);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+    private sealed class FakeMicrophone : IMicrophoneCaptureService
+    {
+        public event EventHandler<AudioFrame>? AudioCaptured;
+        public event EventHandler<Exception>? CaptureFailed;
+        public IReadOnlyList<AudioInputDevice> GetDevices() => [new("default", "Microfone de teste", true)];
+        public Task StartAsync(string? deviceId = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Emit(AudioFrame frame) => AudioCaptured?.Invoke(this, frame);
+        public void Fail() => CaptureFailed?.Invoke(this, new InvalidOperationException("Microfone removido"));
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
     private sealed class FakeEncoder : IVideoEncoderService
@@ -166,6 +264,7 @@ public class RecordingServiceTests
         public bool CreateFileOnStart;
         public int VideoFrames;
         public int Completed;
+        public List<AudioFrame> AudioFrames { get; } = [];
         private string? _path;
         public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
         {
@@ -175,11 +274,30 @@ public class RecordingServiceTests
             return Task.CompletedTask;
         }
         public Task EncodeAsync(VideoFrame frame, CancellationToken cancellationToken = default) { VideoFrames++; return Task.CompletedTask; }
-        public Task EncodeAudioAsync(AudioFrame frame, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task EncodeAudioAsync(AudioFrame frame, CancellationToken cancellationToken = default) { AudioFrames.Add(frame); return Task.CompletedTask; }
         public Task CompleteAsync(CancellationToken cancellationToken = default)
         {
             File.WriteAllBytes(_path!, [1, 2, 3]); Completed++; return Task.CompletedTask;
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ThrowingExporterFactory : IRecordingExporterFactory
+    {
+        public IRecordingExporter GetExporter(RecordingProfile profile) => new ThrowingExporter();
+    }
+
+    private sealed class ThrowingExporter : IRecordingExporter
+    {
+        public bool CanExport(RecordingProfile profile) => true;
+        public Task ExportAsync(string sourcePath, string destinationPath, RecordingProfile profile, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("FFmpeg simulado indisponível");
+    }
+
+    private static byte[] Samples(params short[] values)
+    {
+        var bytes = new byte[values.Length * sizeof(short)];
+        for (var index = 0; index < values.Length; index++) BitConverter.TryWriteBytes(bytes.AsSpan(index * 2, 2), values[index]);
+        return bytes;
     }
 }

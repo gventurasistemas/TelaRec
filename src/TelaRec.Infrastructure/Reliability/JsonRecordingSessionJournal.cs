@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using TelaRec.Core.Reliability;
 using TelaRec.Core.Recording;
@@ -9,6 +10,8 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
 {
     private readonly ILogger<JsonRecordingSessionJournal> _logger;
     private readonly string _directory;
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _sessionGates = new();
+    private readonly ConcurrentDictionary<Guid, byte> _completedSessions = new();
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public JsonRecordingSessionJournal(ILogger<JsonRecordingSessionJournal> logger, string? directory = null)
     {
@@ -17,24 +20,64 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
     }
     public async Task CreateAsync(RecordingJournalEntry entry, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(_directory);
-        await WriteAsync(entry, cancellationToken).ConfigureAwait(false);
+        var gate = GateFor(entry.SessionId);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            _completedSessions.TryRemove(entry.SessionId, out _);
+            await WriteAsync(entry, cancellationToken).ConfigureAwait(false);
+        }
+        finally { gate.Release(); }
     }
     public async Task UpdateAsync(Guid sessionId, RecordingState state, string? error = null, CancellationToken cancellationToken = default)
     {
-        var entry = await ReadAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        if (entry is not null) await WriteAsync(entry with { State = state, Error = error }, cancellationToken).ConfigureAwait(false);
+        var gate = GateFor(sessionId);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_completedSessions.ContainsKey(sessionId)) return;
+            var entry = await ReadAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            if (entry is not null && !_completedSessions.ContainsKey(sessionId))
+                await WriteAsync(entry with { State = state, Error = error }, cancellationToken).ConfigureAwait(false);
+        }
+        finally { gate.Release(); }
     }
-    public Task CompleteAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    public async Task CompleteAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
-        var path = JournalPath(sessionId);
-        if (File.Exists(path)) File.Delete(path);
-        return Task.CompletedTask;
+        var gate = GateFor(sessionId);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _completedSessions[sessionId] = 0;
+            var path = JournalPath(sessionId);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        finally { gate.Release(); }
     }
     public async Task<RecoveryResult> RecoverAsync(CancellationToken cancellationToken = default)
     {
         if (!Directory.Exists(_directory)) return new RecoveryResult(0, 0, []);
-        var diagnostics = new List<string>(); var removed = 0; var entries = Directory.GetFiles(_directory, "*.json");
+        var diagnostics = new List<string>(); var removed = 0;
+
+        // Escritas de journal são atômicas (.json.tmp -> .json). Um encerramento
+        // entre as duas operações só pode deixar um arquivo nesta pasta privada;
+        // ele nunca contém mídia nem dados do usuário.
+        foreach (var abandonedWrite in Directory.GetFiles(_directory, "*.json.tmp"))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Delete(abandonedWrite);
+                diagnostics.Add("Uma escrita incompleta do journal foi removida.");
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Não foi possível remover escrita temporária do journal {JournalPath}", abandonedWrite);
+            }
+        }
+
+        var entries = Directory.GetFiles(_directory, "*.json");
         foreach (var path in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -45,7 +88,12 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
                     entry = await JsonSerializer.DeserializeAsync<RecordingJournalEntry>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
                 if (entry is not null && IsOwnedTemporary(entry))
                 {
-                    if (File.Exists(entry.TemporaryPath)) { File.Delete(entry.TemporaryPath); removed++; }
+                    foreach (var temporaryPath in OwnedTemporaryPaths(entry))
+                    {
+                        if (!File.Exists(temporaryPath)) continue;
+                        File.Delete(temporaryPath);
+                        removed++;
+                    }
                     diagnostics.Add($"Sessão interrompida {entry.SessionId:N} recuperada.");
                 }
                 File.Delete(path);
@@ -57,6 +105,19 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
     private bool IsOwnedTemporary(RecordingJournalEntry entry) =>
         Path.GetFileName(entry.TemporaryPath).EndsWith(".partial.mp4", StringComparison.OrdinalIgnoreCase) &&
         string.Equals(Path.GetDirectoryName(Path.GetFullPath(entry.TemporaryPath)), Path.GetDirectoryName(Path.GetFullPath(entry.OutputPath)), StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> OwnedTemporaryPaths(RecordingJournalEntry entry)
+    {
+        yield return entry.TemporaryPath;
+
+        // FfmpegRecordingExporter cria este arquivo a partir do nome do MP4
+        // temporário. A extensão vem exclusivamente do destino registrado.
+        var directory = Path.GetDirectoryName(Path.GetFullPath(entry.TemporaryPath))!;
+        var sourceStem = Path.GetFileNameWithoutExtension(entry.TemporaryPath);
+        var extension = Path.GetExtension(entry.OutputPath);
+        if (!string.IsNullOrEmpty(extension))
+            yield return Path.Combine(directory, $"{sourceStem}.export.partial{extension}");
+    }
     private async Task WriteAsync(RecordingJournalEntry entry, CancellationToken token)
     {
         var temporary = JournalPath(entry.SessionId) + ".tmp";
@@ -71,4 +132,5 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
         return await JsonSerializer.DeserializeAsync<RecordingJournalEntry>(stream, JsonOptions, token).ConfigureAwait(false);
     }
     private string JournalPath(Guid id) => Path.Combine(_directory, $"{id:N}.json");
+    private SemaphoreSlim GateFor(Guid sessionId) => _sessionGates.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
 }

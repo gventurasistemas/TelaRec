@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using TelaRec.App.Wpf.Resources;
 using TelaRec.App.Wpf.ViewModels;
 using TelaRec.Core.Capture;
 using TelaRec.Core.Input;
+using TelaRec.Infrastructure.Recording;
 
 namespace TelaRec.App.Wpf;
 
@@ -18,21 +20,25 @@ public partial class MainWindow : Window
 
     private readonly MainWindowViewModel _viewModel;
     private readonly ILogger<MainWindow> _logger;
+    private readonly ILogger<WindowsGraphicsCaptureService> _previewLogger;
     private readonly Dictionary<int, string> _appliedHotkeys = new();
     private NotifyIcon? _tray;
     private GlobalHotkeyService? _hotkeys;
     private bool _allowClose;
     private bool _trayHintShown;
 
-    public MainWindow(MainWindowViewModel viewModel, ILogger<MainWindow> logger)
+    public MainWindow(MainWindowViewModel viewModel, ILogger<MainWindow> logger, ILogger<WindowsGraphicsCaptureService> previewLogger)
     {
         InitializeComponent();
         _viewModel = viewModel;
         _logger = logger;
+        _previewLogger = previewLogger;
         DataContext = _viewModel;
         ContentRendered += async (_, _) =>
         {
             await _viewModel.LoadAsync();
+            ConfigureDisplays();
+            RestorePersistedWindowTarget();
             ApplyHotkeys();
         };
         SourceInitialized += (_, _) => SetupShellIntegration();
@@ -181,9 +187,11 @@ public partial class MainWindow : Window
 
     private void SelectRegion(object sender, RoutedEventArgs e)
     {
-        var screen = Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);
-        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
-        var overlay = new RegionOverlayWindow(screen, dpi.DpiScaleX, dpi.DpiScaleY) { Owner = this };
+        var screens = Screen.AllScreens.OrderByDescending(screen => screen.Primary).ToArray();
+        var screen = screens.ElementAtOrDefault(_viewModel.SelectedDisplayIndex)
+            ?? Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+        var dpi = GetDpiScale(screen);
+        var overlay = new RegionOverlayWindow(screen, dpi.X, dpi.Y) { Owner = this };
         Hide();
         overlay.ShowDialog();
         Show();
@@ -227,4 +235,56 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() == true && list.SelectedItem is DesktopWindow selected)
             _viewModel.SelectTarget(new CaptureTarget.Window(selected.Handle, selected.Title));
     }
+
+    private void ConfigureDisplays()
+    {
+        var displays = Screen.AllScreens
+            .OrderByDescending(screen => screen.Primary)
+            .Select((screen, index) => new DisplayTargetOption(
+                index,
+                $"{screen.DeviceName} — {screen.Bounds.Width}×{screen.Bounds.Height}"));
+        _viewModel.SetAvailableDisplays(displays);
+    }
+
+    private void RestorePersistedWindowTarget()
+    {
+        var windows = WindowEnumerator.GetVisibleWindows()
+            .Select(window => new CaptureTarget.Window(window.Handle, window.Title));
+        _viewModel.RestorePersistedWindowTarget(windows);
+    }
+
+    private void ShowPreview(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var preview = new CapturePreviewWindow(_viewModel.BuildCaptureTarget(), _previewLogger)
+            {
+                Owner = this
+            };
+            preview.ShowDialog();
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Não foi possível abrir a prévia de captura");
+            _viewModel.ReportHotkeyIssue(string.Format(Strings.PreviewUnavailable, exception.Message));
+        }
+    }
+
+    private static (double X, double Y) GetDpiScale(Screen screen)
+    {
+        var point = new NativePoint(screen.Bounds.Left + screen.Bounds.Width / 2, screen.Bounds.Top + screen.Bounds.Height / 2);
+        var monitor = MonitorFromPoint(point, 2 /* MONITOR_DEFAULTTONEAREST */);
+        if (monitor != IntPtr.Zero && GetDpiForMonitor(monitor, 0 /* MDT_EFFECTIVE_DPI */, out var x, out var y) == 0)
+            return (x / 96d, y / 96d);
+        return (1, 1);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct NativePoint(int X, int Y);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
+
+    [DllImport("Shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 }

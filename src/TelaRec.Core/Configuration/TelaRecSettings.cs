@@ -11,12 +11,19 @@ public sealed class TelaRecSettings
     public int FramesPerSecond { get; set; } = 30;
 
     public bool SystemAudioEnabled { get; set; } = true;
+    public bool MicrophoneEnabled { get; set; }
+    public string? MicrophoneDeviceId { get; set; }
+    public float SystemAudioGain { get; set; } = 1;
+    public float MicrophoneGain { get; set; } = 1;
+    public bool SystemAudioMuted { get; set; }
+    public bool MicrophoneMuted { get; set; }
 
     public string Quality { get; set; } = "Alta";
     public string ToggleRecordingHotkey { get; set; } = "Ctrl+Alt+R";
     public string TogglePauseHotkey { get; set; } = "Ctrl+Alt+P";
     public string ScreenshotHotkey { get; set; } = "Ctrl+Alt+S";
     public string LastCaptureMode { get; set; } = "fullscreen";
+    public Capture.CaptureTargetSettings LastCaptureTarget { get; set; } = new();
     public bool CloseToTray { get; set; } = true;
     public bool ShowCursor { get; set; } = true;
     public bool ShowClickEffects { get; set; } = false;
@@ -26,6 +33,7 @@ public sealed class TelaRecSettings
     public string SelectedPreset { get; set; } = "tutorial-1080p";
     public RecordingContainer RecordingContainer { get; set; } = RecordingContainer.Mp4;
     public VideoCodec VideoCodec { get; set; } = VideoCodec.H264;
+    public VideoEncoderAcceleration EncoderAcceleration { get; set; } = VideoEncoderAcceleration.Auto;
     public int VideoBitrate { get; set; } = 8_000_000;
     public int OutputWidth { get; set; } = 1920;
     public int OutputHeight { get; set; } = 1080;

@@ -259,6 +259,67 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Saved_region_target_is_restored_and_used_by_the_next_request()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings
+                {
+                    OutputDirectory = directory,
+                    LastCaptureMode = "region",
+                    LastCaptureTarget = new TelaRec.Core.Capture.CaptureTargetSettings
+                    {
+                        Kind = "region", X = -400, Y = 30, Width = 800, Height = 600
+                    }
+                }
+            };
+            var viewModel = CreateViewModel(settings, new FakeRecordingService(), new FakeAvailabilityProbe(new RecordingAvailability(true)));
+
+            await viewModel.LoadAsync();
+
+            Assert.Equal(MainWindowViewModel.CaptureModeRegion, viewModel.CaptureMode);
+            Assert.Equal(new TelaRec.Core.Capture.CaptureTarget.Region(-400, 30, 800, 600), viewModel.BuildCaptureTarget());
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Microphone_source_and_selected_device_are_applied_to_recording_request()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var recording = new FakeRecordingService();
+            var microphone = new FakeMicrophoneCapture();
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings
+                {
+                    OutputDirectory = directory,
+                    MicrophoneEnabled = true,
+                    MicrophoneDeviceId = "mic-2"
+                }
+            };
+            var viewModel = CreateViewModel(settings, recording, new FakeAvailabilityProbe(new RecordingAvailability(true)), microphone: microphone);
+
+            await viewModel.LoadAsync();
+            Assert.Equal("both", viewModel.AudioSourceMode);
+            Assert.Equal(2, viewModel.MicrophoneDevices.Count);
+            viewModel.AudioSourceMode = "microphone";
+            await viewModel.ToggleRecordingAsync();
+
+            Assert.NotNull(recording.LastRequest);
+            Assert.False(recording.LastRequest!.EffectiveAudioMix.SystemEnabled);
+            Assert.True(recording.LastRequest.EffectiveAudioMix.MicrophoneEnabled);
+            Assert.Equal("mic-2", recording.LastRequest.MicrophoneDeviceId);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Diagnostics_are_listed_newest_first_and_can_be_cleared()
     {
         var directory = NewDirectory();
@@ -403,9 +464,10 @@ public sealed class MainWindowViewModelTests
         IRecordingAvailabilityProbe availability,
         IScreenshotService? screenshot = null,
         IRecordingDiagnostics? diagnostics = null,
-        IRecordingScheduler? scheduler = null) =>
+        IRecordingScheduler? scheduler = null,
+        IMicrophoneCaptureService? microphone = null) =>
         new(settings, recording, scheduler ?? new FakeScheduler(), diagnostics ?? new SilentDiagnostics(), availability,
-            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance);
+            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone);
 
     private static string NewDirectory()
     {
@@ -472,6 +534,20 @@ public sealed class MainWindowViewModelTests
             Status = status;
             StatusChanged?.Invoke(this, status);
         }
+    }
+
+    private sealed class FakeMicrophoneCapture : IMicrophoneCaptureService
+    {
+        public event EventHandler<AudioFrame>? AudioCaptured { add { } remove { } }
+        public event EventHandler<Exception>? CaptureFailed { add { } remove { } }
+        public IReadOnlyList<AudioInputDevice> GetDevices() =>
+        [
+            new("mic-1", "Microfone 1", true),
+            new("mic-2", "Microfone 2")
+        ];
+        public Task StartAsync(string? deviceId = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class FakeScreenshotService : IScreenshotService

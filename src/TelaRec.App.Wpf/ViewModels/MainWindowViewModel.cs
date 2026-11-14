@@ -37,6 +37,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     private readonly IRecordingDiagnostics _diagnostics;
     private readonly IRecordingAvailabilityProbe _availability;
     private readonly IScreenshotService _screenshotService;
+    private readonly IMicrophoneCaptureService? _microphoneCapture;
+    private readonly IVideoEncoderCapabilitiesService? _encoderCapabilitiesService;
+    private readonly IRecordingTelemetrySource? _recordingTelemetry;
     private readonly Dictionary<Guid, ScheduledRecording> _scheduleRules = new();
     private readonly Dictionary<string, List<string>> _errors = new();
     private TelaRecSettings _settings = new();
@@ -45,6 +48,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     private string _recordingDuration = "00:00:00";
     private string _captureMode = CaptureModeFullScreen;
     private CaptureTarget? _selectedTarget;
+    private int _selectedDisplayIndex;
     private readonly Stopwatch _durationClock = new();
     private readonly DispatcherTimer _durationTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private TimeSpan _durationBeforeCurrent;
@@ -63,7 +67,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         IRecordingDiagnostics diagnostics,
         IRecordingAvailabilityProbe availability,
         IScreenshotService screenshotService,
-        ILogger<MainWindowViewModel> logger)
+        ILogger<MainWindowViewModel> logger,
+        IMicrophoneCaptureService? microphoneCapture = null,
+        IVideoEncoderCapabilitiesService? encoderCapabilitiesService = null,
+        IRecordingTelemetrySource? recordingTelemetry = null)
     {
         _settingsService = settingsService;
         _recordingService = recordingService;
@@ -72,6 +79,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _diagnostics = diagnostics;
         _availability = availability;
         _screenshotService = screenshotService;
+        _microphoneCapture = microphoneCapture;
+        _encoderCapabilitiesService = encoderCapabilitiesService;
+        _recordingTelemetry = recordingTelemetry;
 
         PresetOptions = RecordingPresets.All
             .Select(preset => new LocalizedOption(preset.Id, Strings.Get(preset.ResourceKey)))
@@ -89,6 +99,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             new("Média", Strings.QualityMedium),
             new("Baixa", Strings.QualityLow)
         ];
+        AudioSourceOptions =
+        [
+            new("none", Strings.AudioSourceNone),
+            new("system", Strings.AudioSourceSystem),
+            new("microphone", Strings.AudioSourceMicrophone),
+            new("both", Strings.AudioSourceBoth)
+        ];
+        EncoderAccelerationOptions =
+        [
+            new(nameof(VideoEncoderAcceleration.Auto), Strings.EncoderAccelerationAuto),
+            new(nameof(VideoEncoderAcceleration.PreferHardware), Strings.EncoderAccelerationHardware),
+            new(nameof(VideoEncoderAcceleration.SoftwareOnly), Strings.EncoderAccelerationSoftware)
+        ];
         PositionOptions =
         [
             new(nameof(OverlayPosition.BottomRight), Strings.PositionBottomRight),
@@ -99,6 +122,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
 
         Diagnostics = new ObservableCollection<DiagnosticItem>();
         Schedules = new ObservableCollection<ScheduledRecordingItem>();
+        DisplayOptions = new ObservableCollection<DisplayTargetOption>();
+        MicrophoneDevices = new ObservableCollection<AudioInputDevice>();
         Diagnostics.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasDiagnostics));
@@ -134,13 +159,43 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
 
     public ObservableCollection<DiagnosticItem> Diagnostics { get; }
     public ObservableCollection<ScheduledRecordingItem> Schedules { get; }
+    public ObservableCollection<DisplayTargetOption> DisplayOptions { get; }
+    public ObservableCollection<AudioInputDevice> MicrophoneDevices { get; }
     public bool HasDiagnostics => Diagnostics.Count > 0;
     public bool HasSchedules => Schedules.Count > 0;
 
     public IReadOnlyList<LocalizedOption> PresetOptions { get; }
     public IReadOnlyList<LocalizedOption> CaptureModeOptions { get; }
     public IReadOnlyList<LocalizedOption> QualityOptions { get; }
+    public IReadOnlyList<LocalizedOption> AudioSourceOptions { get; }
+    public IReadOnlyList<LocalizedOption> EncoderAccelerationOptions { get; }
+    public IReadOnlyList<LocalizedOption> VideoCodecOptions => EncoderCapabilities.HevcSupported
+        ? [new(nameof(VideoCodec.H264), "H.264"), new(nameof(VideoCodec.Hevc), "HEVC")]
+        : [new(nameof(VideoCodec.H264), "H.264")];
     public IReadOnlyList<LocalizedOption> PositionOptions { get; }
+
+    public VideoEncoderCapabilities EncoderCapabilities
+    {
+        get
+        {
+            try { return _encoderCapabilitiesService?.GetCapabilities() ?? VideoEncoderCapabilities.SafeDefault; }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Não foi possível detectar capacidades do encoder");
+                return VideoEncoderCapabilities.SafeDefault;
+            }
+        }
+    }
+
+    public string PerformanceSummary
+    {
+        get
+        {
+            var telemetry = _recordingTelemetry?.CurrentTelemetry ?? RecordingPerformanceTelemetry.Empty;
+            var encoder = telemetry.UsingHardwareEncoder ? Strings.EncoderHardwareActive : Strings.EncoderSoftwareActive;
+            return string.Format(Strings.PerformanceSummary, encoder, telemetry.DroppedFrames, telemetry.AverageEncodeTime.TotalMilliseconds);
+        }
+    }
 
     public string RecordingDuration { get => _recordingDuration; private set => SetField(ref _recordingDuration, value); }
     public RecordingState CurrentRecordingState => _recordingService.Status.State;
@@ -154,9 +209,37 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             if (SetField(ref _captureMode, normalized))
             {
                 _settings.LastCaptureMode = normalized;
-                _selectedTarget = null;
+                _selectedTarget = normalized == CaptureModeFullScreen
+                    ? new CaptureTarget.Display(_selectedDisplayIndex)
+                    : null;
+                PersistSelectedTarget();
             }
         }
+    }
+
+    public int SelectedDisplayIndex
+    {
+        get => _selectedDisplayIndex;
+        set
+        {
+            if (!SetField(ref _selectedDisplayIndex, Math.Max(0, value))) return;
+            if (CaptureMode == CaptureModeFullScreen)
+            {
+                _selectedTarget = new CaptureTarget.Display(_selectedDisplayIndex);
+                PersistSelectedTarget();
+            }
+        }
+    }
+
+    /// <summary>Atualiza a lista de monitores obtida pela camada WPF/Windows.</summary>
+    public void SetAvailableDisplays(IEnumerable<DisplayTargetOption> displays)
+    {
+        var snapshot = displays.OrderBy(display => display.Index).ToArray();
+        DisplayOptions.Clear();
+        foreach (var display in snapshot) DisplayOptions.Add(display);
+        if (DisplayOptions.Count == 0) return;
+        if (DisplayOptions.All(display => display.Index != SelectedDisplayIndex))
+            SelectedDisplayIndex = DisplayOptions[0].Index;
     }
 
     public void SelectTarget(CaptureTarget target)
@@ -168,12 +251,71 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             _ => CaptureModeFullScreen
         };
         _selectedTarget = target;
+        if (target is CaptureTarget.Display display)
+            _selectedDisplayIndex = display.DisplayIndex;
+        PersistSelectedTarget();
+        OnPropertyChanged(nameof(SelectedDisplayIndex));
         StatusMessage = target switch
         {
             CaptureTarget.Window window => string.Format(Strings.WindowSelected, window.Title),
             CaptureTarget.Region => Strings.RegionSelected,
             _ => Strings.FullScreenSelected
         };
+    }
+
+    /// <summary>Restaura o alvo salvo que não depende de um handle de janela vivo.</summary>
+    private void RestorePersistedNonWindowTarget()
+    {
+        var saved = _settings.LastCaptureTarget;
+        if (saved.TryCreateNonWindowTarget(out var target) && target is not null)
+        {
+            _selectedTarget = target;
+            _captureMode = target switch
+            {
+                CaptureTarget.Region => CaptureModeRegion,
+                _ => CaptureModeFullScreen
+            };
+            if (target is CaptureTarget.Display display) _selectedDisplayIndex = display.DisplayIndex;
+            OnPropertyChanged(nameof(CaptureMode));
+            OnPropertyChanged(nameof(SelectedDisplayIndex));
+            return;
+        }
+
+        if (string.Equals(saved.Kind, "window", StringComparison.OrdinalIgnoreCase))
+        {
+            // O MainWindow revalida o handle/título contra as janelas visíveis.
+            _captureMode = CaptureModeWindow;
+            OnPropertyChanged(nameof(CaptureMode));
+            return;
+        }
+
+        SelectTarget(new CaptureTarget.Display());
+    }
+
+    /// <summary>Recebe do code-behind uma janela revalidada depois que o desktop estiver disponível.</summary>
+    internal bool RestorePersistedWindowTarget(IEnumerable<CaptureTarget.Window> windows)
+    {
+        if (!string.Equals(_settings.LastCaptureTarget.Kind, "window", StringComparison.OrdinalIgnoreCase)) return false;
+        var saved = _settings.LastCaptureTarget;
+        var candidates = windows.ToArray();
+        var window = candidates.FirstOrDefault(candidate => candidate.Handle.ToInt64() == saved.WindowHandle);
+        if (window is null && !string.IsNullOrWhiteSpace(saved.WindowTitle))
+        {
+            var titleMatches = candidates
+                .Where(candidate => string.Equals(candidate.Title, saved.WindowTitle, StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            if (titleMatches.Length == 1) window = titleMatches[0];
+        }
+        if (window is not null)
+        {
+            SelectTarget(window);
+            return true;
+        }
+
+        SelectTarget(new CaptureTarget.Display(_selectedDisplayIndex));
+        StatusMessage = Strings.FullScreenSelected;
+        return false;
     }
 
     public string StatusMessage { get => _statusMessage; private set => SetField(ref _statusMessage, value); }
@@ -225,7 +367,73 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public bool SystemAudioEnabled
     {
         get => _settings.SystemAudioEnabled;
-        set { if (_settings.SystemAudioEnabled != value) { _settings.SystemAudioEnabled = value; OnPropertyChanged(); OnPropertyChanged(nameof(AudioStatusText)); } }
+        set { if (_settings.SystemAudioEnabled != value) { _settings.SystemAudioEnabled = value; OnPropertyChanged(); NotifyAudioSettingsChanged(); } }
+    }
+
+    public bool MicrophoneEnabled
+    {
+        get => _settings.MicrophoneEnabled;
+        set { if (_settings.MicrophoneEnabled != value) { _settings.MicrophoneEnabled = value; OnPropertyChanged(); NotifyAudioSettingsChanged(); } }
+    }
+
+    public string? SelectedMicrophoneDeviceId
+    {
+        get => _settings.MicrophoneDeviceId;
+        set { if (_settings.MicrophoneDeviceId != value) { _settings.MicrophoneDeviceId = value; OnPropertyChanged(); } }
+    }
+
+    public float SystemAudioGain
+    {
+        get => _settings.SystemAudioGain;
+        set { if (_settings.SystemAudioGain != value) { _settings.SystemAudioGain = Math.Clamp(value, 0, 4); OnPropertyChanged(); } }
+    }
+
+    public float MicrophoneGain
+    {
+        get => _settings.MicrophoneGain;
+        set { if (_settings.MicrophoneGain != value) { _settings.MicrophoneGain = Math.Clamp(value, 0, 4); OnPropertyChanged(); } }
+    }
+
+    public bool SystemAudioMuted
+    {
+        get => _settings.SystemAudioMuted;
+        set { if (_settings.SystemAudioMuted != value) { _settings.SystemAudioMuted = value; OnPropertyChanged(); } }
+    }
+
+    public bool MicrophoneMuted
+    {
+        get => _settings.MicrophoneMuted;
+        set { if (_settings.MicrophoneMuted != value) { _settings.MicrophoneMuted = value; OnPropertyChanged(); } }
+    }
+
+    public string AudioSourceMode
+    {
+        get => (SystemAudioEnabled, MicrophoneEnabled) switch
+        {
+            (true, true) => "both",
+            (true, false) => "system",
+            (false, true) => "microphone",
+            _ => "none"
+        };
+        set
+        {
+            var (system, microphone) = value switch
+            {
+                "system" => (true, false),
+                "microphone" => (false, true),
+                "both" => (true, true),
+                _ => (false, false)
+            };
+            var changed = _settings.SystemAudioEnabled != system || _settings.MicrophoneEnabled != microphone;
+            _settings.SystemAudioEnabled = system;
+            _settings.MicrophoneEnabled = microphone;
+            if (changed)
+            {
+                OnPropertyChanged(nameof(SystemAudioEnabled));
+                OnPropertyChanged(nameof(MicrophoneEnabled));
+                NotifyAudioSettingsChanged();
+            }
+        }
     }
 
     public bool ShowCursor
@@ -246,7 +454,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         set { if (_settings.CloseToTray != value) { _settings.CloseToTray = value; OnPropertyChanged(); } }
     }
 
-    public string AudioStatusText => SystemAudioEnabled ? Strings.AudioOn : Strings.AudioOff;
+    public string AudioStatusText => AudioSourceMode == "none" ? Strings.AudioOff : Strings.AudioOn;
+
+    private void NotifyAudioSettingsChanged()
+    {
+        OnPropertyChanged(nameof(AudioSourceMode));
+        OnPropertyChanged(nameof(AudioStatusText));
+    }
 
     public string OutputFormat
     {
@@ -259,6 +473,33 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             OnPropertyChanged();
             NotifyFormatSummary();
             ValidateResolution();
+        }
+    }
+
+    public string SelectedVideoCodec
+    {
+        get => _settings.VideoCodec.ToString();
+        set
+        {
+            if (!Enum.TryParse<VideoCodec>(value, true, out var codec)) return;
+            if (codec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported) return;
+            if (_settings.VideoCodec == codec) return;
+            _settings.VideoCodec = codec;
+            OnPropertyChanged();
+            NotifyFormatSummary();
+            ValidateResolution();
+            MarkCustomPreset();
+        }
+    }
+
+    public string EncoderAcceleration
+    {
+        get => _settings.EncoderAcceleration.ToString();
+        set
+        {
+            if (!Enum.TryParse<VideoEncoderAcceleration>(value, true, out var acceleration) || _settings.EncoderAcceleration == acceleration) return;
+            _settings.EncoderAcceleration = acceleration;
+            OnPropertyChanged();
         }
     }
 
@@ -477,16 +718,41 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public async Task LoadAsync()
     {
         _settings = await _settingsService.LoadAsync();
+        await _scheduler.InitializeAsync();
+        foreach (var rule in _scheduler.ScheduledRules)
+        {
+            _scheduleRules[rule.Id] = rule;
+            var status = _scheduler.Scheduled.FirstOrDefault(item => item.Id == rule.Id)
+                ?? new ScheduledRecordingStatus(rule.Id, ScheduledRecordingState.Pending);
+            ApplyScheduledStatus(status);
+        }
         TryCreateOutputDirectory();
         OutputDirectory = _settings.OutputDirectory;
         _selectedPreset = ResolveSelectedPreset();
         OnPropertyChanged(nameof(FramesPerSecond));
         OnPropertyChanged(nameof(SystemAudioEnabled));
+        OnPropertyChanged(nameof(MicrophoneEnabled));
+        OnPropertyChanged(nameof(SelectedMicrophoneDeviceId));
+        OnPropertyChanged(nameof(SystemAudioGain));
+        OnPropertyChanged(nameof(MicrophoneGain));
+        OnPropertyChanged(nameof(SystemAudioMuted));
+        OnPropertyChanged(nameof(MicrophoneMuted));
+        OnPropertyChanged(nameof(AudioSourceMode));
         OnPropertyChanged(nameof(AudioStatusText));
+        RefreshMicrophoneDevices();
         OnPropertyChanged(nameof(ShowCursor));
         OnPropertyChanged(nameof(ShowClickEffects));
         OnPropertyChanged(nameof(CloseToTray));
         OnPropertyChanged(nameof(OutputFormat));
+        if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
+        {
+            _settings.VideoCodec = VideoCodec.H264;
+            _diagnostics.Report(DiagnosticSeverity.Warning, "encoder.hevc_unavailable", Strings.HevcUnavailable);
+        }
+        OnPropertyChanged(nameof(VideoCodecOptions));
+        OnPropertyChanged(nameof(SelectedVideoCodec));
+        OnPropertyChanged(nameof(EncoderAcceleration));
+        OnPropertyChanged(nameof(PerformanceSummary));
         OnPropertyChanged(nameof(OutputResolution));
         OnPropertyChanged(nameof(FormatSummary));
         OnPropertyChanged(nameof(VideoBitrate));
@@ -505,9 +771,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         OnPropertyChanged(nameof(WatermarkPosition));
         OnPropertyChanged(nameof(WebcamPosition));
         OnPropertyChanged(nameof(WebcamOpacity));
-        var savedMode = NormalizeCaptureMode(_settings.LastCaptureMode);
-        CaptureMode = savedMode is CaptureModeWindow or CaptureModeRegion ? CaptureModeFullScreen : savedMode;
-        _settings.LastCaptureMode = CaptureMode;
+        _selectedDisplayIndex = Math.Max(0, _settings.LastCaptureTarget.DisplayIndex);
+        RestorePersistedNonWindowTarget();
 
         foreach (var diagnostic in _diagnostics.Current) AddDiagnostic(diagnostic);
 
@@ -588,6 +853,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     {
         _settings.OutputDirectory = OutputDirectory.Trim();
         _settings.LastCaptureMode = CaptureMode;
+        PersistSelectedTarget();
     }
 
     private void OpenOutputDirectory()
@@ -798,22 +1064,74 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     {
         var profile = BuildProfile();
         if (!profile.IsValid) throw new InvalidOperationException(Strings.ValidationProfileNotSupported);
-        var name = $"TelaRec_{DateTime.Now:yyyyMMdd_HHmmss}{profile.FileExtension}";
-        CaptureTarget target = CaptureMode switch
-        {
-            CaptureModeFullScreen => new CaptureTarget.Display(),
-            CaptureModeWindow when _selectedTarget is CaptureTarget.Window window => window,
-            CaptureModeRegion when _selectedTarget is CaptureTarget.Region region => region,
-            _ => throw new InvalidOperationException(Strings.ValidationProfileNotSupported)
-        };
+        var target = BuildCaptureTarget();
         return new RecordingRequest(
-            Path.Combine(OutputDirectory, name),
+            BuildAvailableOutputPath(profile.FileExtension),
             FramesPerSecond,
             SystemAudioEnabled,
             target,
             profile,
             new RecordingOverlaySettings(_settings.Watermark, _settings.Webcam, BuildClickEffects()),
-            _settings.ShowCursor);
+            _settings.ShowCursor,
+            BuildAudioMix(),
+            _settings.MicrophoneDeviceId,
+            _settings.EncoderAcceleration);
+    }
+
+    internal CaptureTarget BuildCaptureTarget() => CaptureMode switch
+    {
+        CaptureModeFullScreen => new CaptureTarget.Display(_selectedDisplayIndex),
+        CaptureModeWindow when _selectedTarget is CaptureTarget.Window window => window,
+        CaptureModeRegion when _selectedTarget is CaptureTarget.Region region => region,
+        _ => throw new InvalidOperationException(Strings.ValidationProfileNotSupported)
+    };
+
+    private string BuildAvailableOutputPath(string extension)
+    {
+        var stem = $"TelaRec_{DateTime.Now:yyyyMMdd_HHmmss}";
+        var candidate = Path.Combine(OutputDirectory, stem + extension);
+        for (var suffix = 1; File.Exists(candidate); suffix++)
+            candidate = Path.Combine(OutputDirectory, $"{stem}-{suffix}{extension}");
+        return candidate;
+    }
+
+    private AudioMixSettings BuildAudioMix() => new(
+        _settings.SystemAudioEnabled,
+        _settings.MicrophoneEnabled,
+        _settings.SystemAudioGain,
+        _settings.MicrophoneGain,
+        _settings.SystemAudioMuted,
+        _settings.MicrophoneMuted);
+
+    private void RefreshMicrophoneDevices()
+    {
+        MicrophoneDevices.Clear();
+        if (_microphoneCapture is null) return;
+        try
+        {
+            foreach (var device in _microphoneCapture.GetDevices()) MicrophoneDevices.Add(device);
+            if (!string.IsNullOrWhiteSpace(_settings.MicrophoneDeviceId) &&
+                MicrophoneDevices.All(device => device.Id != _settings.MicrophoneDeviceId))
+                _settings.MicrophoneDeviceId = null;
+            OnPropertyChanged(nameof(SelectedMicrophoneDeviceId));
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Não foi possível enumerar microfones");
+            _diagnostics.Report(DiagnosticSeverity.Warning, "microphone.enumeration", "Não foi possível enumerar os microfones disponíveis.");
+        }
+    }
+
+    private void PersistSelectedTarget()
+    {
+        var target = _selectedTarget ?? new CaptureTarget.Display(_selectedDisplayIndex);
+        _settings.LastCaptureTarget = CaptureTargetSettings.FromTarget(target);
+        _settings.LastCaptureMode = target switch
+        {
+            CaptureTarget.Window => CaptureModeWindow,
+            CaptureTarget.Region => CaptureModeRegion,
+            _ => CaptureModeFullScreen
+        };
     }
 
     private ClickEffectSettings BuildClickEffects() => _settings.ShowClickEffects
@@ -888,6 +1206,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     {
         RecordingDuration = (_durationBeforeCurrent + _durationClock.Elapsed).ToString(@"hh\:mm\:ss");
         StatusMessage = _audioWarning ?? string.Format(Strings.RecordingInProgress, RecordingDuration);
+        OnPropertyChanged(nameof(PerformanceSummary));
     }
 
     private void RecalculateBitrate()

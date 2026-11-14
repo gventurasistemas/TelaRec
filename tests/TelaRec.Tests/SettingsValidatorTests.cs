@@ -62,11 +62,11 @@ public sealed class SettingsValidatorTests
     }
 
     [Fact]
-    public void Rejects_mp4_with_hevc_until_transcoding_exists()
+    public void Allows_mp4_with_hevc_and_defers_capability_check_to_encoder()
     {
         var settings = Valid();
         settings.VideoCodec = VideoCodec.Hevc;
-        Assert.Contains(SettingsValidator.Validate(settings, verifyOutputDirectory: false),
+        Assert.DoesNotContain(SettingsValidator.Validate(settings, verifyOutputDirectory: false),
             issue => issue.Code == SettingsValidationCode.ProfileNotSupported);
     }
 

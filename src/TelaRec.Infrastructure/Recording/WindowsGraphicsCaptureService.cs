@@ -12,7 +12,7 @@ using Windows.Graphics.DirectX.Direct3D11;
 
 namespace TelaRec.Infrastructure.Recording;
 
-public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCaptureService> logger) : IVideoCaptureService
+public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCaptureService> logger) : IVideoCaptureService, IVideoCaptureTelemetrySource
 {
     private readonly object _sync = new();
     private ID3D11Device? _device;
@@ -33,9 +33,15 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
     private byte[]? _lastPixels;
     private int _lastWidth, _lastHeight, _lastStride;
     private CaptureFrameBounds? _captureBounds;
+    private long _capturedFrames;
+    private long _rateLimitedFrames;
+    private long _repeatedFrames;
     public event EventHandler<VideoFrame>? FrameCaptured;
     public event EventHandler<Exception>? CaptureFailed;
     public CaptureFrameBounds? CaptureBounds { get { lock (_sync) return _captureBounds; } }
+    public long CapturedFrames => Interlocked.Read(ref _capturedFrames);
+    public long RateLimitedFrames => Interlocked.Read(ref _rateLimitedFrames);
+    public long RepeatedFrames => Interlocked.Read(ref _repeatedFrames);
 
     public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
     {
@@ -46,6 +52,9 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
             try
             {
                 _fps = Math.Max(1, request.FramesPerSecond);
+                Interlocked.Exchange(ref _capturedFrames, 0);
+                Interlocked.Exchange(ref _rateLimitedFrames, 0);
+                Interlocked.Exchange(ref _repeatedFrames, 0);
                 var target = request.Target ?? new CaptureTarget.Display();
                 var screens = System.Windows.Forms.Screen.AllScreens.OrderByDescending(screen => screen.Primary).ToArray();
                 if (screens.Length == 0) throw new InvalidOperationException("Nenhum monitor disponível.");
@@ -115,7 +124,11 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                 using var frame = sender.TryGetNextFrame();
                 if (frame is null) return;
                 var ticks = frame.SystemRelativeTime.Ticks;
-                if (_lastFrameTicks != 0 && ticks - _lastFrameTicks < TimeSpan.TicksPerSecond / _fps) return;
+                if (_lastFrameTicks != 0 && ticks - _lastFrameTicks < TimeSpan.TicksPerSecond / _fps)
+                {
+                    Interlocked.Increment(ref _rateLimitedFrames);
+                    return;
+                }
                 _lastFrameTicks = ticks;
                 using var texture = Direct3D11Interop.GetTexture(frame.Surface);
                 var description = texture.Description;
@@ -143,6 +156,7 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                         Marshal.Copy(IntPtr.Add(mapped.DataPointer, (bounds.Y + y) * (int)mapped.RowPitch + bounds.X * 4),
                             pixels, (bounds.Y - wanted.Y + y) * stride + (bounds.X - wanted.X) * 4, bounds.Width * 4);
                     _lastPixels = pixels; _lastWidth = _outputWidth; _lastHeight = _outputHeight; _lastStride = stride;
+                    Interlocked.Increment(ref _capturedFrames);
                     FrameCaptured?.Invoke(this, new VideoFrame(pixels, _outputWidth, _outputHeight, stride, TimeSpan.FromTicks(ticks)));
                     var newSize = frame.ContentSize;
                     if (!_resizeQueued && newSize.Width > 0 && newSize.Height > 0 &&
@@ -186,6 +200,7 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
             var now = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
             if (now - _lastFrameTicks < TimeSpan.TicksPerSecond / _fps) return;
             _lastFrameTicks = now;
+            Interlocked.Increment(ref _repeatedFrames);
             FrameCaptured?.Invoke(this, new VideoFrame(_lastPixels, _lastWidth, _lastHeight, _lastStride, TimeSpan.FromTicks(now)));
         }
     }

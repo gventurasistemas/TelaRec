@@ -6,9 +6,12 @@ using Vortice.MediaFoundation;
 
 namespace TelaRec.Infrastructure.Recording;
 
-/// <summary>Encoder H.264/MP4 nativo do Windows Media Foundation.</summary>
-public sealed class MediaFoundationVideoEncoderService(ILogger<MediaFoundationVideoEncoderService> logger) : IVideoEncoderService
+/// <summary>Encoder MP4 nativo, preferindo MFT de GPU quando o Windows o oferece.</summary>
+public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, IVideoEncoderTelemetrySource
 {
+    private static readonly Guid HevcFormat = new("43564548-0000-0010-8000-00AA00389B71");
+    private readonly ILogger<MediaFoundationVideoEncoderService> _logger;
+    private readonly IVideoEncoderCapabilitiesService _capabilitiesService;
     private IMFSinkWriter? _writer;
     private int _streamIndex = -1;
     private int? _audioStreamIndex;
@@ -18,6 +21,19 @@ public sealed class MediaFoundationVideoEncoderService(ILogger<MediaFoundationVi
     private bool _started;
     private bool _mediaFoundationStarted;
     private RecordingProfile _profile = RecordingProfile.Mvp;
+    private string? _outputPath;
+    private bool _includeAudio;
+    private bool _usingHardwareEncoder;
+
+    public MediaFoundationVideoEncoderService(
+        ILogger<MediaFoundationVideoEncoderService> logger,
+        IVideoEncoderCapabilitiesService? capabilitiesService = null)
+    {
+        _logger = logger;
+        _capabilitiesService = capabilitiesService ?? new MediaFoundationVideoEncoderCapabilitiesService();
+    }
+
+    public bool UsingHardwareEncoder => _usingHardwareEncoder;
 
     public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
     {
@@ -25,29 +41,58 @@ public sealed class MediaFoundationVideoEncoderService(ILogger<MediaFoundationVi
         Directory.CreateDirectory(directory);
         if (_started) throw new InvalidOperationException("Encoder já iniciado.");
         _profile = request.EffectiveProfile;
-        if (_profile.Container != RecordingContainer.Mp4 || _profile.VideoCodec != VideoCodec.H264)
-            throw new NotSupportedException("O encoder nativo aceita apenas o perfil intermediário MP4/H.264.");
+        if (_profile.Container != RecordingContainer.Mp4 || _profile.VideoCodec is not (VideoCodec.H264 or VideoCodec.Hevc))
+            throw new NotSupportedException("O encoder nativo aceita apenas MP4 com H.264 ou HEVC.");
         _fps = _profile.FramesPerSecond;
+        _outputPath = request.OutputPath;
+        _includeAudio = request.EffectiveAudioMix.HasEnabledSource;
+        var capabilities = _capabilitiesService.GetCapabilities();
+        _usingHardwareEncoder = SelectHardwareEncoder(request.EncoderAcceleration, capabilities);
         MediaFactory.MFStartup();
         _mediaFoundationStarted = true;
         try
         {
-            using var attributes = MediaFactory.MFCreateAttributes(1);
-            attributes.Set(SinkWriterAttributeKeys.DisableThrottling, 1u);
-            _writer = MediaFactory.MFCreateSinkWriterFromURL(request.OutputPath, null, attributes);
-            if (request.SystemAudioEnabled) ConfigureAudio();
+            CreateWriter(_usingHardwareEncoder);
             _started = true;
         }
         catch { Release(); throw; }
-        logger.LogInformation("Encoder Media Foundation iniciado para {OutputPath}", request.OutputPath);
+        _logger.LogInformation("Encoder Media Foundation iniciado para {OutputPath}; Codec={Codec}; Implementation={Implementation}",
+            request.OutputPath, _profile.VideoCodec, _usingHardwareEncoder ? "hardware" : "software");
         return Task.CompletedTask;
+    }
+
+    private bool SelectHardwareEncoder(VideoEncoderAcceleration preference, VideoEncoderCapabilities capabilities)
+    {
+        if (_profile.VideoCodec == VideoCodec.Hevc)
+        {
+            if (!capabilities.HevcSupported)
+                throw new NotSupportedException("HEVC não é suportado pelos encoders instalados neste Windows.");
+            if (preference == VideoEncoderAcceleration.SoftwareOnly && !capabilities.HevcSoftwareSupported)
+                throw new NotSupportedException("HEVC por software não está disponível neste Windows.");
+            return preference != VideoEncoderAcceleration.SoftwareOnly && capabilities.HevcHardwareSupported;
+        }
+
+        if (preference == VideoEncoderAcceleration.SoftwareOnly) return false;
+        if (preference == VideoEncoderAcceleration.PreferHardware && !capabilities.H264HardwareSupported)
+            _logger.LogWarning("H.264 por GPU não foi detectado; usando o encoder de software do Windows.");
+        return capabilities.H264HardwareSupported;
+    }
+
+    private void CreateWriter(bool hardware)
+    {
+        using var attributes = MediaFactory.MFCreateAttributes(2);
+        attributes.Set(SinkWriterAttributeKeys.DisableThrottling, 1u);
+        // Sem esse atributo, o Sink Writer não seleciona MFTs de hardware.
+        attributes.Set(SinkWriterAttributeKeys.ReadwriteEnableHardwareTransforms, hardware ? 1u : 0u);
+        _writer = MediaFactory.MFCreateSinkWriterFromURL(_outputPath!, null, attributes);
+        if (_includeAudio) ConfigureAudio();
     }
 
     public Task EncodeAsync(VideoFrame frame, CancellationToken cancellationToken = default)
     {
         if (!_started || _writer is null) throw new InvalidOperationException("Encoder não iniciado.");
 
-        if (_streamIndex < 0 && !Configure(frame)) throw new InvalidOperationException("Não foi possível configurar o encoder H.264.");
+        if (_streamIndex < 0 && !Configure(frame)) throw new InvalidOperationException("Não foi possível configurar o encoder de vídeo.");
         var nv12 = ConvertToNv12(frame);
         using var buffer = MediaFactory.MFCreateMemoryBuffer(nv12.Length);
         buffer.Lock(out var pointer, out _, out _);
@@ -82,9 +127,29 @@ public sealed class MediaFoundationVideoEncoderService(ILogger<MediaFoundationVi
 
     private bool Configure(VideoFrame frame)
     {
+        try { return ConfigureCore(frame); }
+        catch (Exception exception) when (_usingHardwareEncoder && _profile.VideoCodec == VideoCodec.H264)
+        {
+            // Alguns drivers anunciam a MFT mas recusam uma combinação de perfil,
+            // dimensão ou GPU. Ainda não houve amostra válida, portanto recriar o
+            // writer em software é seguro e não perde mídia.
+            _logger.LogWarning(exception, "H.264 por GPU recusou a configuração; alternando para software.");
+            _writer?.Dispose();
+            _writer = null;
+            _streamIndex = -1;
+            _audioStreamIndex = null;
+            _writing = false;
+            _usingHardwareEncoder = false;
+            CreateWriter(hardware: false);
+            return ConfigureCore(frame);
+        }
+    }
+
+    private bool ConfigureCore(VideoFrame frame)
+    {
         using var output = MediaFactory.MFCreateMediaType();
         output.Set(MediaTypeAttributeKeys.MajorType, MediaTypeGuids.Video);
-        output.Set(MediaTypeAttributeKeys.Subtype, VideoFormatGuids.H264);
+        output.Set(MediaTypeAttributeKeys.Subtype, _profile.VideoCodec == VideoCodec.Hevc ? HevcFormat : VideoFormatGuids.H264);
         output.Set(MediaTypeAttributeKeys.AvgBitrate, (uint)_profile.Bitrate);
         output.Set(MediaTypeAttributeKeys.FrameSize, Pack(frame.Width, frame.Height));
         output.Set(MediaTypeAttributeKeys.FrameRate, Pack(_fps, 1));
@@ -143,6 +208,7 @@ public sealed class MediaFoundationVideoEncoderService(ILogger<MediaFoundationVi
     {
         _writer?.Dispose(); _writer = null;
         _started = false; _writing = false; _streamIndex = -1; _audioStreamIndex = null;
+        _outputPath = null; _includeAudio = false; _usingHardwareEncoder = false;
         if (_mediaFoundationStarted) { MediaFactory.MFShutdown(); _mediaFoundationStarted = false; }
     }
 

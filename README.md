@@ -6,18 +6,26 @@ Gravador de tela Windows x64 feito em C#/.NET 8 e WPF, com interface em portugu�
 
 Cada gravação usa um `RecordingProfile`: contêiner, codec, bitrate, FPS e resolução. A tela é redimensionada para a resolução do perfil antes de chegar ao encoder, preservando proporção e preenchendo as barras restantes em preto.
 
-- **MP4 / H.264:** gerado nativamente por Media Foundation.
+- **MP4 / H.264 ou HEVC:** gerado nativamente por Media Foundation quando o codec estiver disponível no Windows.
 - **MKV e MOV:** gravam primeiro o MP4 temporário nativo e o backend `FfmpegRecordingExporter` faz a conversão isolada para H.264 ou HEVC.
 - **GIF:** usa outro caminho de pós-processamento, limitado a 30 FPS, com `palettegen` e `paletteuse` para paleta de até 256 cores. Áudio não é incluído em GIF.
 
 MKV, MOV e GIF requerem `ffmpeg.exe`. Para distribuir o aplicativo, coloque-o em `tools\\ffmpeg.exe` ao lado do executável, ou configure `TELAREC_FFMPEG_PATH`. O TelaRec não baixa executáveis durante a gravação.
 
+A conversão externa escreve primeiro um arquivo temporário no diretório de saída e só publica o destino após êxito. Se o FFmpeg falhar, o destino final não é criado e o MP4 intermediário é preservado com o sufixo `-intermediario-<sessão>.mp4` para recuperação manual.
+
 ## MVP
 
 - Grava tela inteira, janela escolhida ou região em MP4/H.264.
 - Inicia, pausa, retoma e para. Mostra a duração em tempo real.
-- Grava áudio do dispositivo de saída padrão quando habilitado, em AAC estéreo 48 kHz. Se a captura de áudio falhar, o vídeo continua e a interface informa o problema.
-- Salva na pasta configurável; cria um arquivo temporário no mesmo diretório e só o renomeia após a finalização bem-sucedida.
+- Grava áudio do sistema, do microfone ou dos dois em AAC estéreo 48 kHz. Se uma fonte de áudio falhar, o vídeo e a outra fonte continuam e a interface informa o problema.
+- Salva na pasta configurável; cria um arquivo temporário no mesmo diretório e só o renomeia após a finalização bem-sucedida. Um arquivo existente nunca é sobrescrito silenciosamente.
+
+## Alvos de captura e prévia
+
+O modo **Tela inteira** permite escolher cada monitor disponível. **Janela selecionada** e **Região personalizada** usam o mesmo backend WGC/D3D11 da gravação. O botão **Prévia** abre uma sessão WGC curta e independente antes de gravar; a própria janela de prévia pede exclusão da captura no Windows para não gerar efeito de espelho.
+
+A região é desenhada no monitor escolhido e pode ser ajustada pelos quatro cantos antes de confirmar. Regiões e o monitor escolhido são persistidos em `settings.json`. Janelas persistidas são revalidadas pelo handle ou por um título único ao abrir; se não existirem mais, o TelaRec volta com segurança à tela inteira.
 
 ## Apresentação
 
@@ -35,6 +43,14 @@ O cursor é incluído por padrão. A opção **Mostrar cursor** (`ShowCursor`) d
 Com **Destacar cliques** (`ShowClickEffects`) ativo, um hook global passivo `WH_MOUSE_LL` observa cliques apenas durante a gravação. Ele sempre chama `CallNextHookEx`, portanto nenhum clique do usuário é bloqueado ou engolido, e é desinstalado ao parar a gravação ou fechar o aplicativo. Cada clique é convertido das coordenadas físicas da tela para o quadro de saída considerando o recorte da região, o deslocamento de monitores secundários, o DPI por monitor e a escala do perfil. O compositor desenha um halo/ripple antes do encoder e remove o efeito quando ele expira, sem bloquear a thread de interface. Duração (0,6 s), raio (28 px) e cor (#FF3B30) têm padrões seguros persistidos em `settings.json`.
 
 Os textos da WPF usam recursos em Resources/Strings.resx (pt-BR padrão) e Resources/Strings.en-US.resx. A cultura da interface segue a cultura de interface do Windows/.NET.
+
+## Microfone e mixagem (P06)
+
+Na seção **Áudio**, escolha **Sem áudio**, **Sistema**, **Microfone** ou **Sistema e microfone**. A lista de dispositivos usa WASAPI e permite selecionar um microfone específico; sem seleção, é usado o dispositivo padrão do Windows. Cada fonte tem ganho de 0 a 4 e mute independente, persistidos em `settings.json`.
+
+`WasapiLoopbackAudioCaptureService` e `WasapiMicrophoneCaptureService` convertem PCM16/24/32 e float32 para PCM16, 48 kHz, estéreo. O downmix de 1 a 8 canais preserva L/R, centro, LFE e surrounds com ganhos conservadores. O mixer alinha a latência inicial dos dispositivos, mistura os blocos por timestamp, aplica saturação contra clipping e preenche uma fonte ausente com silêncio. A diferença máxima observada entre as fontes é registrada; acima de 100 ms, aparece também em Diagnósticos.
+
+Desconectar ou perder o microfone durante a gravação não interrompe vídeo nem áudio do sistema. A medição de 30 minutos deve ainda ser repetida manualmente em cada combinação real de drivers e dispositivos antes de uma distribuição pública.
 
 ## Screenshots, presets e atalhos
 
@@ -68,9 +84,9 @@ O comportamento de fechamento é configurável em **Fechar minimiza para a bande
 
 ## Confiabilidade
 
-Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. A recuperação na abertura seguinte existe para encerramentos abruptos (queda do processo ou desligamento): remove somente temporários partial.mp4 declarados no journal e no mesmo diretório do arquivo final; caminhos externos ou inválidos são preservados. Quando a própria gravação trata a falha, o temporário é apagado na hora e o journal não é reaproveitado.
+Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a captura. O journal contém o identificador da sessão, arquivo temporário, destino final e estado. Atualizações e conclusão são serializadas por sessão, portanto um update atrasado não recria um journal já concluído. A recuperação na abertura seguinte existe para encerramentos abruptos (queda do processo ou desligamento): remove somente o MP4 temporário declarado, seu temporário de exportação FFmpeg derivado e escritas `.json.tmp` dentro da pasta privada do journal; caminhos externos ou inválidos são preservados. Quando a própria gravação trata a falha, temporário e journal são removidos imediatamente.
 
-O agendador impede períodos sobrepostos e confere se já existe uma gravação ativa. Tanto a gravação manual quanto a agendada verificam antes de iniciar se a captura de tela é suportada e se a sessão está desbloqueada; quando não está disponível, o motivo é exibido e o estado permanece Idle, sem registrar falha. Falhas de áudio ou webcam não param o vídeo; falha da tela encerra a sessão e mantém o journal para recuperação. A interface mostra o diagnóstico mais recente na parte inferior da janela, com código, severidade e mensagem.
+O agendador impede períodos sobrepostos e confere se já existe uma gravação ativa. As regras são persistidas atomicamente em `%APPDATA%\TelaRec\schedules.json` e restauradas no próximo início; uma sessão que estava marcada como `Recording` é rearmada como `Pending`, evitando um estado fantasma depois de uma queda. Regras são protegidas por uma única sincronização; iniciar/parar a gravação ocorre fora desse lock, permitindo cancelamento seguro durante um tick. Tanto a gravação manual quanto a agendada verificam antes de iniciar se a captura de tela é suportada e se a sessão está desbloqueada; quando não está disponível, o motivo é exibido e o estado permanece Idle, sem registrar falha. Falhas de áudio ou webcam não param o vídeo. A interface mostra o diagnóstico mais recente na parte inferior da janela, com código, severidade e mensagem.
 
 As configurações ficam em `%APPDATA%\TelaRec\settings.json`. A gravação é atômica: o conteúdo é escrito em um arquivo temporário no mesmo diretório, validado por desserialização e só então substitui o arquivo atual, mantendo `settings.json.bak` com a versão anterior. Se o JSON principal estiver corrompido, o TelaRec tenta o backup, registra um diagnóstico e, em último caso, abre com os valores padrão sem falhar. Antes de iniciar qualquer gravação, pasta de saída, FPS (1–120), bitrate (500 kb/s–80 Mb/s), resolução e combinação contêiner/codec são validados com mensagens específicas.
 
@@ -80,14 +96,29 @@ Logs de execução são gravados em `%LOCALAPPDATA%\TelaRec\logs` (um arquivo po
 
 1. `WindowsGraphicsCaptureService` cria um `GraphicsCaptureItem` para monitor ou janela e usa `Direct3D11CaptureFramePool.CreateFreeThreaded`. Copia a textura D3D11 para memória gerenciada por meio de uma textura de staging e entrega quadros BGRA. Para região, recorta em coordenadas físicas do monitor. As dimensões H.264 são arredondadas para números pares. Quando uma janela muda de tamanho, o frame pool é recriado; a saída conserva o tamanho inicial e preenche as partes descobertas com preto.
 2. A captura usa `SystemRelativeTime` da WGC, em relógio monotônico. Um temporizador repete o último quadro quando a tela não muda, preservando a duração de uma gravação estática.
-3. `WasapiLoopbackAudioCaptureService` captura o dispositivo de saída padrão. Converte PCM/float do dispositivo para PCM de 16 bits, 48 kHz e dois canais por interpolação. Os blocos recebem timestamps no mesmo relógio monotônico. A fila também preenche lacunas sem dados com silêncio.
-4. `RecordingService` centraliza áudio e vídeo em um `Channel` limitado a 32 pacotes. Um único consumidor ordena um pequeno buffer por timestamp, codifica e libera os recursos na parada ou falha. A fila descarta pacotes antigos sob pressão para manter a captura responsiva.
-5. `MediaFoundationVideoEncoderService` converte BGRA para NV12 e escreve H.264/AAC com `IMFSinkWriter`. O throttling do Sink Writer é desabilitado para não atrasar a drenagem da fila após parar. Os timestamps e durações do Media Foundation usam unidades de 100 ns, iguais aos ticks de `TimeSpan`.
+3. `WasapiLoopbackAudioCaptureService` e `WasapiMicrophoneCaptureService` capturam as fontes WASAPI escolhidas. O reamostrador compartilhado normaliza PCM/float para PCM16, 48 kHz e dois canais, preservando a continuidade entre blocos. `TimestampedAudioMixer` compensa a latência inicial, aplica ganho/mute/clipping e entrega uma única linha de áudio ao encoder. A fila também preenche lacunas sem dados com silêncio.
+4. `RecordingService` centraliza áudio e vídeo em um `Channel` limitado a 32 pacotes. Um único consumidor ordena um pequeno buffer por timestamp, codifica e libera os recursos na parada ou falha. Sob pressão, a nova amostra é descartada sem bloquear a captura; os contadores ficam visíveis em Configurações e no log final.
+5. `MediaFoundationVideoEncoderService` converte BGRA para NV12 e escreve H.264/HEVC e AAC com `IMFSinkWriter`. O throttling do Sink Writer é desabilitado para não atrasar a drenagem da fila após parar. Os timestamps e durações do Media Foundation usam unidades de 100 ns, iguais aos ticks de `TimeSpan`.
 6. Após a finalização do MP4 temporário, `FfmpegRecordingExporter` produz MKV, MOV ou GIF quando o perfil pede esses formatos.
 
 ## Decisão do encoder
 
 O MVP usa **Media Foundation**, disponível no Windows, para H.264, AAC e MP4. Isso dispensa a distribuição de binários FFmpeg e suas licenças no instalador. FFmpeg permanece candidato para contêineres e codecs extras. A conversão BGRA → NV12 é feita no processo; em resoluções e FPS elevados, o custo de CPU deve ser medido antes de definir presets mais exigentes.
+
+## Performance e jogos (Fase 6)
+
+Na abertura da interface, `MediaFoundationVideoEncoderCapabilitiesService` enumera os MFTs de vídeo registrados no Windows para H.264 e HEVC. Em **Configurações → Vídeo**, o modo **Automática** seleciona H.264 por GPU quando houver MFT de hardware; **Preferir GPU** registra o fallback quando não houver suporte; e **Somente software** desabilita explicitamente transforms de hardware. Se um driver anunciar H.264 por GPU mas recusar a configuração inicial, o writer é recriado em software antes do primeiro quadro ser gravado. O resumo de desempenho apresenta implementação ativa, frames descartados e tempo médio de codificação. HEVC só aparece como escolha quando um encoder HEVC nativo é detectado; se a capacidade desaparecer após uma troca de driver, a configuração salva retorna com segurança a H.264.
+
+Os contadores distinguem frames limitados pelo FPS de destino, frames repetidos em tela estática, drops de vídeo por pressão da fila e drops de áudio. Ao concluir ou falhar, os números são emitidos como log estruturado e uma advertência é adicionada aos Diagnósticos se houve perda de vídeo.
+
+**Captura de jogos — decisão atual:** WGC/D3D11 continua sendo o backend padrão para tela, janela e jogos em janela, borderless ou fullscreen compositor. Ele compartilha o mesmo dispositivo D3D11, preserva DPI, cursor e a prévia já existente. `DXGI Desktop Duplication` é a alternativa para jogos em fullscreen exclusivo quando WGC não entrega quadros; ela não suporta captura direta de uma janela e exigiria uma implementação separada por output/adaptador, com tratamento de `DXGI_ERROR_ACCESS_LOST`, rotação, HDR e troca de GPU. Por isso não há fallback automático nesta versão: alternar automaticamente poderia capturar o monitor ou adaptador errado e gerar uma gravação vazia. A duplicação DXGI fica isolada como próximo backend de jogos, após uma matriz de dispositivos físicos.
+
+Validação manual obrigatória antes de distribuir:
+
+- H.264 1080p30 e 1080p60, nos modos Automática e Somente software, verificando o resumo e o arquivo MP4.
+- HEVC somente quando a opção aparecer, confirmando reprodução em Filmes e TV/VLC e via `ffprobe`.
+- Jogo em janela, borderless e fullscreen exclusivo, em cada GPU disponível (integrada e dedicada), verificando início, pausa, cursor e ausência de frames pretos.
+- Dois monitores em adaptadores distintos, com captura em cada um; medir tempo de início e conferir que os frames descartados permanecem aceitáveis para o perfil selecionado.
 
 ## Estrutura
 
@@ -101,15 +132,16 @@ tools/TelaRec.Smoke          Gravação curta de validação no desktop
 
 ## Executar
 
-Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela.
+Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela. O aplicativo é configurado para `win-x64`; o SDK Windows 10.0.26100 instalado nesta máquina é usado para gerar as projeções WinRT, mantendo a versão mínima suportada em 19041.
 
 ```powershell
 dotnet restore TelaRec.sln
 dotnet test TelaRec.sln
 dotnet run --project src/TelaRec.App.Wpf
+dotnet publish src/TelaRec.App.Wpf -c Release -r win-x64 --self-contained false
 ```
 
-Na interface, escolha o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região** e arraste o retângulo. A seleção visual fecha antes do início da captura. A janela/região escolhida não sobrevive ao reinício; nesse caso o TelaRec volta para **Tela inteira** para não deixar o botão Gravar em um estado inválido.
+Na interface, escolha o monitor e o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região**, arraste o retângulo e ajuste os cantos se necessário. Use **Prévia** para verificar o alvo antes de gravar. A seleção visual fecha antes do início da captura.
 
 Atalhos padrão: `Ctrl+Alt+R` inicia/para, `Ctrl+Alt+P` pausa/retoma e `Ctrl+Alt+S` captura a tela. Todos podem ser alterados na aba Configurações e passam a valer ao salvar.
 
@@ -128,6 +160,6 @@ Em 13/11/2026, tela inteira, região e janela geraram MP4s decodificáveis com P
 
 ## Limites atuais
 
-- Uma região que cruza monitores é limitada ao monitor com maior interseção.
-- A captura de áudio usa os canais esquerdo e direito do dispositivo de saída; dispositivos multicanal ainda precisam de downmix completo.
+- Uma região que cruza monitores é limitada ao monitor com maior interseção; para capturar outro monitor, escolha-o antes de selecionar a região.
+- A sincronização de áudio depende dos relógios e drivers WASAPI; valide gravações longas em cada combinação de dispositivos antes de liberar uma versão pública.
 - A sobreposição de seleção visual abre no monitor do aplicativo; a gravação de um alvo selecionado usa coordenadas físicas e o manifesto do aplicativo declara DPI por monitor.

@@ -219,6 +219,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Text="{resources:Loc Key=OutputFolder}" Style="{StaticResource FieldLabel}" />
@@ -246,10 +247,17 @@
                                           ItemsSource="{Binding CaptureModeOptions}" DisplayMemberPath="DisplayName"
                                           SelectedValuePath="Value" SelectedValue="{Binding CaptureMode}" />
 
-                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Grid.Row="4" Text="{resources:Loc Key=Display}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
+                                <ComboBox Grid.Row="4" Grid.Column="1" Margin="0,14,0,0"
+                                          ItemsSource="{Binding DisplayOptions}" DisplayMemberPath="DisplayName"
+                                          SelectedValuePath="Index" SelectedValue="{Binding SelectedDisplayIndex}" />
+
+                                <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
                                     <Button Content="{resources:Loc Key=SelectWindow}" Click="SelectWindow" Margin="0,0,8,0"
                                             Background="#E5E7EB" Foreground="#111827" />
                                     <Button Content="{resources:Loc Key=SelectRegion}" Click="SelectRegion"
+                                            Background="#E5E7EB" Foreground="#111827" Margin="0,0,8,0" />
+                                    <Button Content="{resources:Loc Key=Preview}" Click="ShowPreview"
                                             Background="#E5E7EB" Foreground="#111827" />
                                 </StackPanel>
                             </Grid>
@@ -303,6 +311,9 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Text="{resources:Loc Key=Format}" Style="{StaticResource FieldLabel}" />
@@ -336,7 +347,20 @@
                                     <TextBox Grid.Row="4" Grid.Column="1" Width="120" HorizontalAlignment="Left" Margin="0,14,0,0"
                                              Text="{Binding FramesPerSecond, UpdateSourceTrigger=LostFocus}" />
 
-                                    <TextBlock Grid.Row="5" Grid.ColumnSpan="2" Style="{StaticResource HintText}" Margin="0,10,0,0"
+                                    <TextBlock Grid.Row="5" Text="{resources:Loc Key=Codec}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
+                                    <ComboBox Grid.Row="5" Grid.Column="1" Margin="0,14,0,0"
+                                              ItemsSource="{Binding VideoCodecOptions}" DisplayMemberPath="DisplayName"
+                                              SelectedValuePath="Value" SelectedValue="{Binding SelectedVideoCodec}" />
+
+                                    <TextBlock Grid.Row="6" Text="{resources:Loc Key=EncoderAcceleration}" Style="{StaticResource FieldLabel}" Margin="0,14,12,0" />
+                                    <ComboBox Grid.Row="6" Grid.Column="1" Margin="0,14,0,0"
+                                              ItemsSource="{Binding EncoderAccelerationOptions}" DisplayMemberPath="DisplayName"
+                                              SelectedValuePath="Value" SelectedValue="{Binding EncoderAcceleration}" />
+
+                                    <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Style="{StaticResource HintText}" Margin="0,10,0,0"
+                                               Text="{Binding PerformanceSummary}" />
+
+                                    <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Style="{StaticResource HintText}" Margin="0,10,0,0"
                                                Text="{resources:Loc Key=QualityHint}" />
                                 </Grid>
                             </StackPanel>
@@ -346,7 +370,34 @@
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
                                 <TextBlock Text="{resources:Loc Key=SectionAudio}" Style="{StaticResource SectionHeader}" />
-                                <CheckBox Content="{resources:Loc Key=AudioSystem}" IsChecked="{Binding SystemAudioEnabled}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="{resources:Loc Key=AudioSource}" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox Grid.Column="1" ItemsSource="{Binding AudioSourceOptions}" DisplayMemberPath="DisplayName"
+                                              SelectedValuePath="Value" SelectedValue="{Binding AudioSourceMode}" />
+                                    <TextBlock Grid.Row="1" Text="{resources:Loc Key=MicrophoneDevice}" Style="{StaticResource FieldLabel}" Margin="0,12,12,0" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" ItemsSource="{Binding MicrophoneDevices}"
+                                              DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding SelectedMicrophoneDeviceId}" />
+                                    <TextBlock Grid.Row="2" Text="{resources:Loc Key=Gain}" Style="{StaticResource FieldLabel}" Margin="0,12,12,0" />
+                                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,12,0,0">
+                                        <TextBlock Text="{resources:Loc Key=AudioSystem}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox Width="60" Text="{Binding SystemAudioGain, UpdateSourceTrigger=LostFocus}" />
+                                        <CheckBox Content="{resources:Loc Key=Mute}" IsChecked="{Binding SystemAudioMuted}" Margin="10,0,18,0" />
+                                        <TextBlock Text="{resources:Loc Key=AudioMicrophone}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox Width="60" Text="{Binding MicrophoneGain, UpdateSourceTrigger=LostFocus}" />
+                                        <CheckBox Content="{resources:Loc Key=Mute}" IsChecked="{Binding MicrophoneMuted}" Margin="10,0,0,0" />
+                                    </StackPanel>
+                                </Grid>
                             </StackPanel>
                         </Border>
 
