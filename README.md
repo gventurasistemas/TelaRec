@@ -36,6 +36,8 @@ Cada sessão cria um journal JSON em AppData/TelaRec/sessions antes de iniciar a
 
 O agendador impede períodos sobrepostos e confere se já existe uma gravação ativa. Antes de iniciar, verifica suporte da captura e se a sessão está desbloqueada. Falhas de áudio ou webcam não param o vídeo; falha da tela encerra a sessão e mantém o journal para recuperação. Diagnósticos recentes aparecem na parte inferior da janela e são registrados com código, severidade e mensagem.
 
+Logs de execução são gravados em `%LOCALAPPDATA%\TelaRec\logs` (um arquivo por dia, retenção de 14 dias). Exceções não tratadas são registradas e exibidas ao usuário, e o encerramento libera captura, áudio, webcam e encoder de forma assíncrona, sem deixar arquivos temporários.
+
 ## Pipeline
 
 1. `WindowsGraphicsCaptureService` cria um `GraphicsCaptureItem` para monitor ou janela e usa `Direct3D11CaptureFramePool.CreateFreeThreaded`. Copia a textura D3D11 para memória gerenciada por meio de uma textura de staging e entrega quadros BGRA. Para região, recorta em coordenadas físicas do monitor. As dimensões H.264 são arredondadas para números pares. Quando uma janela muda de tamanho, o frame pool é recriado; a saída conserva o tamanho inicial e preenche as partes descobertas com preto.

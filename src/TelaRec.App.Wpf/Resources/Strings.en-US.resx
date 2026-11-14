@@ -9,4 +9,6 @@
   <data name="WatermarkText"><value>Watermark text</value></data><data name="WatermarkImage"><value>Watermark PNG</value></data>
   <data name="Position"><value>Position</value></data><data name="Opacity"><value>Opacity</value></data><data name="Scale"><value>Scale</value></data>
   <data name="Ready"><value>Ready to record the main screen.</value></data><data name="RecordingComplete"><value>Recording completed.</value></data><data name="RecordingPaused"><value>Recording paused.</value></data>
+  <data name="UnexpectedErrorTitle"><value>Unexpected error</value></data>
+  <data name="UnexpectedErrorMessage"><value>TelaRec encountered an unexpected error. Details were written to %LOCALAPPDATA%\TelaRec\logs.</value></data>
 </root>
