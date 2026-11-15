@@ -37,10 +37,10 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
 
     public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
     {
-        var directory = Path.GetDirectoryName(request.OutputPath) ?? throw new ArgumentException("Caminho de saída inválido.");
-        Directory.CreateDirectory(directory);
         if (_started) throw new InvalidOperationException("Encoder já iniciado.");
         _profile = request.EffectiveProfile;
+        if (!_profile.IsValid)
+            throw new ArgumentException("Perfil de gravação inválido.", nameof(request));
         if (_profile.Container != RecordingContainer.Mp4 || _profile.VideoCodec is not (VideoCodec.H264 or VideoCodec.Hevc))
             throw new NotSupportedException("O encoder nativo aceita apenas MP4 com H.264 ou HEVC.");
         _fps = _profile.FramesPerSecond;
@@ -48,6 +48,9 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
         _includeAudio = request.EffectiveAudioMix.HasEnabledSource;
         var capabilities = _capabilitiesService.GetCapabilities();
         _usingHardwareEncoder = SelectHardwareEncoder(request.EncoderAcceleration, capabilities);
+        cancellationToken.ThrowIfCancellationRequested();
+        var directory = Path.GetDirectoryName(request.OutputPath) ?? throw new ArgumentException("Caminho de saída inválido.");
+        Directory.CreateDirectory(directory);
         MediaFactory.MFStartup();
         _mediaFoundationStarted = true;
         try
@@ -66,9 +69,9 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
         if (_profile.VideoCodec == VideoCodec.Hevc)
         {
             if (!capabilities.HevcSupported)
-                throw new NotSupportedException("HEVC não é suportado pelos encoders instalados neste Windows.");
+                throw new NotSupportedException("HEVC não está disponível neste Windows. Selecione H.264 para iniciar a gravação.");
             if (preference == VideoEncoderAcceleration.SoftwareOnly && !capabilities.HevcSoftwareSupported)
-                throw new NotSupportedException("HEVC por software não está disponível neste Windows.");
+                throw new NotSupportedException("HEVC por software não está disponível neste Windows. Use aceleração automática ou selecione H.264.");
             return preference != VideoEncoderAcceleration.SoftwareOnly && capabilities.HevcHardwareSupported;
         }
 

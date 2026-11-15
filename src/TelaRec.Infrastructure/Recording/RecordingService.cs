@@ -170,7 +170,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             _fps = _profile.FramesPerSecond;
             _originTicks = NowTicks();
             _composer.Configure(request.EffectiveOverlays);
-            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = RecordingProfile.Mvp with { FramesPerSecond = _profile.FramesPerSecond, Bitrate = _profile.Bitrate, Width = _profile.Width, Height = _profile.Height } }, cancellationToken).ConfigureAwait(false);
+            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = _profile }, cancellationToken).ConfigureAwait(false);
             _encodeTask = Task.Run(() => EncodeLoopAsync(_queue.Reader), CancellationToken.None);
             await _capture.StartAsync(request, cancellationToken).ConfigureAwait(false);
             _composer.SetClickEffectContext(_capture.CaptureBounds);

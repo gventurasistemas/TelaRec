@@ -63,7 +63,7 @@
   <data name="EncoderHardwareActive"><value>GPU</value></data>
   <data name="EncoderSoftwareActive"><value>Software</value></data>
   <data name="PerformanceSummary"><value>Encoder: {0} • Quadros descartados: {1} • Codificação média: {2:F1} ms</value></data>
-  <data name="HevcUnavailable"><value>HEVC não está disponível neste Windows; H.264 foi selecionado.</value></data>
+  <data name="HevcUnavailable"><value>HEVC não está disponível neste Windows. Selecione H.264 para iniciar a gravação.</value></data>
   <data name="Quality"><value>Qualidade</value></data>
   <data name="QualityHint"><value>Ao mudar a qualidade, o bitrate sugerido é recalculado. Você ainda pode editá-lo manualmente.</value></data>
   <data name="QualityHigh"><value>Alta</value></data>

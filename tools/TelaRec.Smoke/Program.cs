@@ -26,7 +26,10 @@ CaptureTarget target = args.Contains("--region") ? new CaptureTarget.Region(100,
 var formatIndex = Array.FindIndex(args, a => string.Equals(a, "--format", StringComparison.OrdinalIgnoreCase));
 var format = formatIndex >= 0 && formatIndex + 1 < args.Length && Enum.TryParse<RecordingContainer>(args[formatIndex + 1], true, out var parsed)
     ? parsed : RecordingContainer.Mp4;
-var profile = new RecordingProfile(format, format == RecordingContainer.Gif ? VideoCodec.Gif : VideoCodec.H264, 2_000_000, 15, 640, 480);
+var codecIndex = Array.FindIndex(args, a => string.Equals(a, "--codec", StringComparison.OrdinalIgnoreCase));
+var codec = codecIndex >= 0 && codecIndex + 1 < args.Length && Enum.TryParse<VideoCodec>(args[codecIndex + 1], true, out var parsedCodec)
+    ? parsedCodec : VideoCodec.H264;
+var profile = new RecordingProfile(format, format == RecordingContainer.Gif ? VideoCodec.Gif : codec, 2_000_000, 15, 640, 480);
 var clickEffects = args.Contains("--click-effects")
     ? new ClickEffectSettings(Enabled: true, Radius: 32, DurationSeconds: 1.0, Color: "#FF0000", Opacity: 1.0)
     : ClickEffectSettings.None;

@@ -55,6 +55,61 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Available_hevc_is_preserved_in_request()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings { OutputDirectory = directory, VideoCodec = VideoCodec.Hevc }
+            };
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                settings,
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                encoderCapabilities: new FakeEncoderCapabilities(new VideoEncoderCapabilities(false, true)));
+
+            await viewModel.LoadAsync();
+            await viewModel.StartRecordingAsync();
+
+            Assert.True(recording.StartCalled);
+            Assert.Equal(VideoCodec.Hevc, recording.LastRequest?.EffectiveProfile.VideoCodec);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Unavailable_hevc_is_not_silently_replaced_and_blocks_start()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings { OutputDirectory = directory, VideoCodec = VideoCodec.Hevc }
+            };
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                settings,
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                encoderCapabilities: new FakeEncoderCapabilities(VideoEncoderCapabilities.SafeDefault));
+
+            await viewModel.LoadAsync();
+            await viewModel.StartRecordingAsync();
+
+            Assert.False(recording.StartCalled);
+            Assert.Equal(nameof(VideoCodec.Hevc), viewModel.SelectedVideoCodec);
+            Assert.Contains(viewModel.VideoCodecOptions, option => option.Value == nameof(VideoCodec.Hevc));
+            Assert.Equal(Strings.HevcUnavailable, viewModel.StatusMessage);
+            Assert.Equal(VideoCodec.Hevc, settings.Settings.VideoCodec);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Invalid_settings_are_not_started()
     {
         var directory = NewDirectory();
@@ -465,9 +520,10 @@ public sealed class MainWindowViewModelTests
         IScreenshotService? screenshot = null,
         IRecordingDiagnostics? diagnostics = null,
         IRecordingScheduler? scheduler = null,
-        IMicrophoneCaptureService? microphone = null) =>
+        IMicrophoneCaptureService? microphone = null,
+        IVideoEncoderCapabilitiesService? encoderCapabilities = null) =>
         new(settings, recording, scheduler ?? new FakeScheduler(), diagnostics ?? new SilentDiagnostics(), availability,
-            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone);
+            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone, encoderCapabilities);
 
     private static string NewDirectory()
     {
@@ -600,6 +656,11 @@ public sealed class MainWindowViewModelTests
     private sealed class FakeAvailabilityProbe(RecordingAvailability availability) : IRecordingAvailabilityProbe
     {
         public RecordingAvailability Check() => availability;
+    }
+
+    private sealed class FakeEncoderCapabilities(VideoEncoderCapabilities capabilities) : IVideoEncoderCapabilitiesService
+    {
+        public VideoEncoderCapabilities GetCapabilities() => capabilities;
     }
 
     private sealed class FakeScheduler : IRecordingScheduler

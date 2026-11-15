@@ -169,7 +169,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public IReadOnlyList<LocalizedOption> QualityOptions { get; }
     public IReadOnlyList<LocalizedOption> AudioSourceOptions { get; }
     public IReadOnlyList<LocalizedOption> EncoderAccelerationOptions { get; }
-    public IReadOnlyList<LocalizedOption> VideoCodecOptions => EncoderCapabilities.HevcSupported
+    public IReadOnlyList<LocalizedOption> VideoCodecOptions => EncoderCapabilities.HevcSupported || _settings.VideoCodec == VideoCodec.Hevc
         ? [new(nameof(VideoCodec.H264), "H.264"), new(nameof(VideoCodec.Hevc), "HEVC")]
         : [new(nameof(VideoCodec.H264), "H.264")];
     public IReadOnlyList<LocalizedOption> PositionOptions { get; }
@@ -752,7 +752,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         OnPropertyChanged(nameof(OutputFormat));
         if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
         {
-            _settings.VideoCodec = VideoCodec.H264;
             _diagnostics.Report(DiagnosticSeverity.Warning, "encoder.hevc_unavailable", Strings.HevcUnavailable);
         }
         OnPropertyChanged(nameof(VideoCodecOptions));
@@ -873,6 +872,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         {
             SyncSettingsFromView();
             if (!EnsureSettingsValid()) return;
+            if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
+            {
+                StatusMessage = Strings.HevcUnavailable;
+                _diagnostics.Report(DiagnosticSeverity.Error, "encoder.hevc_unavailable", Strings.HevcUnavailable);
+                return;
+            }
             if (!await SaveSettingsAsync()) return;
 
             var availability = _availability.Check();
