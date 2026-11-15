@@ -19,6 +19,17 @@ public sealed class CaptureTargetTests
     }
 
     [Fact]
+    public void Persisted_region_keeps_its_monitor_index()
+    {
+        var expected = new CaptureTarget.Region(-1200, 80, 640, 480, 2);
+        var settings = CaptureTargetSettings.FromTarget(expected);
+
+        Assert.Equal(2, settings.DisplayIndex);
+        Assert.True(settings.TryCreateNonWindowTarget(out var restored));
+        Assert.Equal(expected, restored);
+    }
+
+    [Fact]
     public void Persisted_window_requires_windows_layer_revalidation()
     {
         var settings = CaptureTargetSettings.FromTarget(new CaptureTarget.Window((nint)42, "Editor"));

@@ -29,9 +29,9 @@ A conversão externa escreve primeiro um arquivo temporário no diretório de sa
 
 ## Alvos de captura e prévia
 
-O modo **Tela inteira** permite escolher cada monitor disponível. **Janela selecionada** e **Região personalizada** usam o mesmo backend WGC/D3D11 da gravação. O botão **Prévia** abre uma sessão WGC curta e independente antes de gravar; a própria janela de prévia pede exclusão da captura no Windows para não gerar efeito de espelho.
+O modo **Tela inteira** permite escolher cada monitor disponível. **Janela selecionada** e **Região personalizada** usam o mesmo backend WGC/D3D11 da gravação. O botão **Prévia** abre uma sessão WGC curta e independente antes de gravar; a própria janela de prévia pede exclusão da captura no Windows para não gerar efeito de espelho. O seletor de janela ignora o próprio TelaRec, janelas invisíveis ou minimizadas e carrega no máximo três miniaturas por vez fora da thread da interface. Cada miniatura tem limite de 2.048 px por lado e 2 milhões de pixels, com 350 ms por janela; atrasos ou falhas exibem um placeholder, sem impedir a seleção das demais.
 
-A região é desenhada no monitor escolhido e pode ser ajustada pelos quatro cantos antes de confirmar. Regiões e o monitor escolhido são persistidos em `settings.json`. Janelas persistidas são revalidadas pelo handle ou por um título único ao abrir; se não existirem mais, o TelaRec volta com segurança à tela inteira.
+A região é desenhada no monitor escolhido e pode ser ajustada pelos quatro cantos antes de confirmar. Regiões e o monitor escolhido são persistidos em `settings.json`, incluindo o índice do monitor para restauração em configurações de múltiplas telas. Janelas persistidas são revalidadas pelo handle ou por um título único ao abrir; se não existirem mais, o TelaRec volta com segurança à tela inteira. A seleção é validada novamente imediatamente antes da captura para rejeitar alvos fechados, ocultos, minimizados ou pertencentes ao próprio TelaRec.
 
 ## Apresentação
 

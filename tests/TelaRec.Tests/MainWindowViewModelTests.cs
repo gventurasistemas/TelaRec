@@ -327,7 +327,7 @@ public sealed class MainWindowViewModelTests
                     LastCaptureMode = "region",
                     LastCaptureTarget = new TelaRec.Core.Capture.CaptureTargetSettings
                     {
-                        Kind = "region", X = -400, Y = 30, Width = 800, Height = 600
+                        Kind = "region", DisplayIndex = 2, X = -400, Y = 30, Width = 800, Height = 600
                     }
                 }
             };
@@ -336,7 +336,8 @@ public sealed class MainWindowViewModelTests
             await viewModel.LoadAsync();
 
             Assert.Equal(MainWindowViewModel.CaptureModeRegion, viewModel.CaptureMode);
-            Assert.Equal(new TelaRec.Core.Capture.CaptureTarget.Region(-400, 30, 800, 600), viewModel.BuildCaptureTarget());
+            Assert.Equal(new TelaRec.Core.Capture.CaptureTarget.Region(-400, 30, 800, 600, 2), viewModel.BuildCaptureTarget());
+            Assert.Equal(2, viewModel.SelectedDisplayIndex);
         }
         finally { Directory.Delete(directory, true); }
     }

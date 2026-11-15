@@ -46,6 +46,7 @@
   <data name="RegionSelectionHint"><value>Drag to select; adjust with the corners; Enter confirms; Esc cancels</value></data>
   <data name="ApplyRegion"><value>Use region</value></data>
   <data name="SelectWindow"><value>Select window</value></data>
+  <data name="WindowNoLongerAvailable"><value>The selected window is no longer available. Choose another window.</value></data>
   <data name="UseWindow"><value>Use window</value></data>
   <data name="SelectRegion"><value>Select region</value></data>
   <data name="Cursor"><value>Cursor</value></data>

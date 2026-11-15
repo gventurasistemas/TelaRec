@@ -191,17 +191,15 @@ public partial class MainWindow : Window
         var screen = screens.ElementAtOrDefault(_viewModel.SelectedDisplayIndex)
             ?? Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);
         var dpi = GetDpiScale(screen);
-        var overlay = new RegionOverlayWindow(screen, dpi.X, dpi.Y) { Owner = this };
+        var overlay = new RegionOverlayWindow(screen, dpi.X, dpi.Y, _viewModel.SelectedDisplayIndex) { Owner = this };
         overlay.ShowDialog();
         Activate();
         if (overlay.Result is not null) _viewModel.SelectTarget(overlay.Result);
     }
 
-    private void SelectWindow(object sender, RoutedEventArgs e)
+    private async void SelectWindow(object sender, RoutedEventArgs e)
     {
-        var windows = WindowEnumerator.GetVisibleWindows()
-            .Where(window => window.Handle != new System.Windows.Interop.WindowInteropHelper(this).Handle)
-            .ToList();
+        var windows = await Task.Run(WindowEnumerator.GetVisibleWindows);
         var list = new System.Windows.Controls.ListBox
         {
             Margin = new Thickness(12),
@@ -285,21 +283,40 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = panel
         };
+        var thumbnailCancellation = new CancellationTokenSource();
+        var thumbnailLoader = new WindowThumbnailLoader(WindowThumbnailProvider.Capture, TimeSpan.FromMilliseconds(350));
+        dialog.Closed += (_, _) => thumbnailCancellation.Cancel();
         list.SelectionChanged += (_, _) => button.IsEnabled = list.SelectedItem is not null;
         button.Click += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         dialog.ContentRendered += async (_, _) =>
         {
-            foreach (var (window, image) in previewImages)
+            using var concurrency = new SemaphoreSlim(WindowThumbnailLoader.MaximumConcurrentCaptures);
+            var token = thumbnailCancellation.Token;
+            var loads = previewImages.Select(async item =>
             {
-                var source = await Task.Run(() => WindowThumbnailProvider.Capture(window.Handle, 180, 100));
-                if (!dialog.IsVisible) return;
-                image.Source = source;
-            }
+                try
+                {
+                    await concurrency.WaitAsync(token);
+                    try
+                    {
+                        var source = await thumbnailLoader.CaptureAsync(item.Window.Handle, 180, 100, token);
+                        if (!token.IsCancellationRequested && dialog.IsVisible) item.Image.Source = source;
+                    }
+                    finally { concurrency.Release(); }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            });
+            await Task.WhenAll(loads);
         };
         if (dialog.ShowDialog() == true
             && list.SelectedItem is System.Windows.Controls.ListBoxItem { Tag: DesktopWindow selected })
-            _viewModel.SelectTarget(new CaptureTarget.Window(selected.Handle, selected.Title));
+        {
+            if (WindowEnumerator.TryGetSelectableWindow(selected.Handle, out var revalidated))
+                _viewModel.SelectTarget(new CaptureTarget.Window(revalidated.Handle, revalidated.Title));
+            else
+                _viewModel.ReportCaptureTargetUnavailable(Strings.WindowNoLongerAvailable);
+        }
     }
 
     private void ConfigureDisplays()

@@ -46,6 +46,7 @@
   <data name="RegionSelectionHint"><value>Arraste para selecionar; ajuste pelos cantos; Enter confirma; Esc cancela</value></data>
   <data name="ApplyRegion"><value>Usar região</value></data>
   <data name="SelectWindow"><value>Selecionar janela</value></data>
+  <data name="WindowNoLongerAvailable"><value>A janela selecionada não está mais disponível. Escolha outra janela.</value></data>
   <data name="UseWindow"><value>Usar janela</value></data>
   <data name="SelectRegion"><value>Selecionar região</value></data>
   <data name="Cursor"><value>Cursor</value></data>

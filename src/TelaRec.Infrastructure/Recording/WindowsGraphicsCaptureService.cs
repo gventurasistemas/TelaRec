@@ -60,6 +60,13 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                 if (screens.Length == 0) throw new InvalidOperationException("Nenhum monitor disponível.");
                 if (target is CaptureTarget.Window window)
                 {
+                    if (!IsWindow(window.Handle) || !IsWindowVisible(window.Handle) || IsIconic(window.Handle))
+                        throw new ArgumentException("A janela selecionada não está mais disponível.", nameof(request));
+
+                    GetWindowThreadProcessId(window.Handle, out var ownerProcessId);
+                    if (ownerProcessId == (uint)Environment.ProcessId)
+                        throw new ArgumentException("Não é possível capturar uma janela do próprio TelaRec.", nameof(request));
+
                     _item = Direct3D11Interop.CreateItemForWindow(window.Handle);
                     var windowBounds = GetWindowBounds(window.Handle);
                     _captureBounds = windowBounds.IsEmpty
@@ -71,7 +78,8 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
                     var screen = target switch
                     {
                         CaptureTarget.Display display => screens.ElementAtOrDefault(display.DisplayIndex) ?? throw new ArgumentOutOfRangeException(nameof(request), "Monitor indisponível."),
-                        CaptureTarget.Region selectedRegion => screens.OrderByDescending(s => Area(System.Drawing.Rectangle.Intersect(s.Bounds, new System.Drawing.Rectangle(selectedRegion.X, selectedRegion.Y, selectedRegion.Width, selectedRegion.Height)))).First(),
+                        CaptureTarget.Region selectedRegion => screens.ElementAtOrDefault(selectedRegion.MonitorIndex)
+                            ?? screens.OrderByDescending(s => Area(System.Drawing.Rectangle.Intersect(s.Bounds, new System.Drawing.Rectangle(selectedRegion.X, selectedRegion.Y, selectedRegion.Width, selectedRegion.Height)))).First(),
                         _ => screens.FirstOrDefault(s => s.Primary) ?? screens[0]
                     };
                     if (target is CaptureTarget.Region region)
@@ -232,6 +240,14 @@ public sealed class WindowsGraphicsCaptureService(ILogger<WindowsGraphicsCapture
     private struct Rect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint hWnd, out Rect rectangle);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(nint hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(nint hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(nint hWnd);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct Point(int X, int Y);
     [DllImport("user32.dll")]

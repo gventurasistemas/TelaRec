@@ -58,6 +58,7 @@ public static class Strings
     public static string RegionSelectionHint => Get(nameof(RegionSelectionHint));
     public static string ApplyRegion => Get(nameof(ApplyRegion));
     public static string SelectWindow => Get(nameof(SelectWindow));
+    public static string WindowNoLongerAvailable => Get(nameof(WindowNoLongerAvailable));
     public static string UseWindow => Get(nameof(UseWindow));
     public static string SelectRegion => Get(nameof(SelectRegion));
     public static string Cursor => Get(nameof(Cursor));

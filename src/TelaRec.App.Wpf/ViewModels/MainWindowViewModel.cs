@@ -253,6 +253,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _selectedTarget = target;
         if (target is CaptureTarget.Display display)
             _selectedDisplayIndex = display.DisplayIndex;
+        else if (target is CaptureTarget.Region region)
+            _selectedDisplayIndex = region.MonitorIndex;
         PersistSelectedTarget();
         OnPropertyChanged(nameof(SelectedDisplayIndex));
         StatusMessage = target switch
@@ -276,6 +278,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
                 _ => CaptureModeFullScreen
             };
             if (target is CaptureTarget.Display display) _selectedDisplayIndex = display.DisplayIndex;
+            else if (target is CaptureTarget.Region region) _selectedDisplayIndex = region.MonitorIndex;
             OnPropertyChanged(nameof(CaptureMode));
             OnPropertyChanged(nameof(SelectedDisplayIndex));
             return;
@@ -852,6 +855,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         DiagnosticsText = message;
         _diagnostics.Report(DiagnosticSeverity.Warning, "hotkey.registration", message);
         _logger.LogWarning("Problema de atalho global: {Message}", message);
+    }
+
+    public void ReportCaptureTargetUnavailable(string message)
+    {
+        StatusMessage = message;
+        DiagnosticsText = message;
+        _diagnostics.Report(DiagnosticSeverity.Warning, "capture.target_unavailable", message);
+        _logger.LogWarning("Alvo de captura indisponível: {Message}", message);
     }
 
     private void SyncSettingsFromView()
