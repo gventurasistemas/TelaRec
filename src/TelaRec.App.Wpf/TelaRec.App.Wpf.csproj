@@ -10,6 +10,10 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="Resources\TelaRec.ico" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
@@ -21,6 +25,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\TelaRec.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

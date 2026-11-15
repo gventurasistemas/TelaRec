@@ -5,7 +5,7 @@
         xmlns:infra="clr-namespace:TelaRec.App.Wpf.Infrastructure"
         xmlns:scheduling="clr-namespace:TelaRec.Core.Scheduling;assembly=TelaRec.Core"
         xmlns:reliability="clr-namespace:TelaRec.Core.Reliability;assembly=TelaRec.Core"
-        Title="{resources:Loc Key=AppTitle}" Height="820" Width="860" MinHeight="680" MinWidth="700"
+        Title="{resources:Loc Key=AppTitle}" Icon="Resources/TelaRec.ico" Height="820" Width="860" MinHeight="680" MinWidth="700"
         WindowStartupLocation="CenterScreen" Background="#10131A" UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display">
     <Window.Resources>
