@@ -100,7 +100,10 @@
   <data name="ScheduleFormHint"><value>Escolha o início e a duração; o agendamento usa as configurações atuais.</value></data>
   <data name="SchedulesEmpty"><value>Nenhum agendamento nesta sessão.</value></data>
   <data name="ScheduledStatePending"><value>Pendente</value></data>
+  <data name="ScheduledStateStarting"><value>Iniciando</value></data>
   <data name="ScheduledStateRecording"><value>Gravando</value></data>
+  <data name="ScheduledStateCancelling"><value>Cancelando</value></data>
+  <data name="ScheduledStateCancelled"><value>Cancelado</value></data>
   <data name="ScheduledStateCompleted"><value>Concluído</value></data>
   <data name="ScheduledStateRejected"><value>Rejeitado</value></data>
   <data name="ScheduledStateFailed"><value>Falha</value></data>
@@ -118,6 +121,7 @@
   <data name="ScheduleCreateFailed"><value>Não foi possível agendar: {0}</value></data>
   <data name="ScheduleMissingTimes"><value>Informe um início no futuro e uma duração positiva.</value></data>
   <data name="ScheduleCancelled"><value>Agendamento cancelado.</value></data>
+  <data name="ScheduleCancelFailed"><value>Não foi possível cancelar o agendamento: {0}</value></data>
   <data name="DiagnosticsEmpty"><value>Nenhum diagnóstico registrado.</value></data>
   <data name="DiagnosticsHint"><value>Os últimos 20 eventos aparecem aqui e também no log em arquivo.</value></data>
   <data name="SeverityInformation"><value>Info</value></data>

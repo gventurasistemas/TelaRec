@@ -174,6 +174,27 @@ public sealed class ReliabilityTests
     }
 
     [Fact]
+    public async Task Journal_recovery_reports_preserved_file_path()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var temporary = Path.Combine(root, ".recording.partial.mp4");
+        var recovered = Path.Combine(root, "recording-recuperavel-session.mp4");
+        var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, Path.Combine(root, "sessions"));
+        var sessionId = Guid.NewGuid();
+        try
+        {
+            await journal.CreateAsync(new RecordingJournalEntry(sessionId, temporary, Path.Combine(root, "recording.mp4"), DateTimeOffset.UtcNow, RecordingState.Starting, null));
+            await journal.UpdateAsync(sessionId, RecordingState.Failed, $"Arquivo recuperável preservado em {recovered}.");
+
+            var result = await journal.RecoverAsync();
+
+            Assert.Contains(result.Diagnostics, message => message.Contains(recovered, StringComparison.Ordinal));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task Cancelling_a_due_schedule_during_start_does_not_reintroduce_it()
     {
         var recording = new BlockingRecordingService();
@@ -185,11 +206,73 @@ public sealed class ReliabilityTests
 
         var tick = scheduler.ProcessDueAsync();
         await recording.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await scheduler.CancelAsync(schedule.Id);
+        var cancellation = scheduler.CancelAsync(schedule.Id);
         recording.Release.TrySetResult();
-        await tick;
+        await Task.WhenAll(tick, cancellation);
 
         Assert.DoesNotContain(scheduler.Scheduled, status => status.Id == schedule.Id);
+    }
+
+    [Fact]
+    public async Task Cancelling_while_starting_waits_for_start_then_stops_before_removing_rule()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var recording = new BlockingRecordingService();
+        await using var scheduler = new RecordingScheduler(recording, new AvailableProbe(), new RecordingDiagnosticsService(), NullLogger<RecordingScheduler>.Instance, timeProvider: clock);
+        var schedule = new ScheduledRecording(Guid.NewGuid(), clock.GetUtcNow().AddMinutes(1), clock.GetUtcNow().AddMinutes(2), new RecordingRequest(Path.Combine(Path.GetTempPath(), "scheduled.mp4")));
+        await scheduler.ScheduleAsync(schedule);
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        var tick = scheduler.ProcessDueAsync();
+        await recording.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var cancellation = scheduler.CancelAsync(schedule.Id);
+        Assert.False(cancellation.IsCompleted);
+
+        recording.Release.TrySetResult();
+        await Task.WhenAll(tick, cancellation);
+
+        Assert.Equal(1, recording.StopCalls);
+        Assert.DoesNotContain(scheduler.Scheduled, status => status.Id == schedule.Id);
+    }
+
+    [Fact]
+    public async Task Concurrent_cancellation_of_active_schedule_stops_once_and_is_idempotent()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var recording = new BlockingStopRecordingService();
+        await using var scheduler = new RecordingScheduler(recording, new AvailableProbe(), new RecordingDiagnosticsService(), NullLogger<RecordingScheduler>.Instance, timeProvider: clock);
+        var schedule = new ScheduledRecording(Guid.NewGuid(), clock.GetUtcNow().AddMinutes(1), clock.GetUtcNow().AddMinutes(2), new RecordingRequest(Path.Combine(Path.GetTempPath(), "scheduled.mp4")));
+        await scheduler.ScheduleAsync(schedule);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await scheduler.ProcessDueAsync();
+
+        var first = scheduler.CancelAsync(schedule.Id);
+        await recording.StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = scheduler.CancelAsync(schedule.Id);
+        recording.ReleaseStop.TrySetResult();
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(1, recording.StopCalls);
+        Assert.DoesNotContain(scheduler.Scheduled, status => status.Id == schedule.Id);
+    }
+
+    [Fact]
+    public async Task Failed_active_cancellation_keeps_rule_recording_and_cancelable()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var recording = new ThrowingStopRecordingService();
+        await using var scheduler = new RecordingScheduler(recording, new AvailableProbe(), new RecordingDiagnosticsService(), NullLogger<RecordingScheduler>.Instance, timeProvider: clock);
+        var schedule = new ScheduledRecording(Guid.NewGuid(), clock.GetUtcNow().AddMinutes(1), clock.GetUtcNow().AddMinutes(2), new RecordingRequest(Path.Combine(Path.GetTempPath(), "scheduled.mp4")));
+        await scheduler.ScheduleAsync(schedule);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await scheduler.ProcessDueAsync();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => scheduler.CancelAsync(schedule.Id));
+
+        Assert.Contains("parada", error.Message, StringComparison.OrdinalIgnoreCase);
+        var status = Assert.Single(scheduler.Scheduled);
+        Assert.Equal(ScheduledRecordingState.Recording, status.State);
+        Assert.Equal(ScheduledRecordingMessageCode.StopFailed, status.MessageCode);
     }
     private sealed class AvailableProbe : IRecordingAvailabilityProbe { public RecordingAvailability Check() => new(true); }
     private sealed class InMemoryScheduleStore : IScheduledRecordingStore
@@ -221,6 +304,7 @@ public sealed class ReliabilityTests
         private RecordingStatus _status = RecordingStatus.Initial;
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int StopCalls { get; private set; }
         public RecordingStatus Status => _status;
         public event EventHandler<RecordingStatus>? StatusChanged;
         public async Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
@@ -234,9 +318,60 @@ public sealed class ReliabilityTests
         public Task ResumeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
+            StopCalls++;
             _status = new RecordingStatus(RecordingState.Completed, TimeSpan.Zero);
             StatusChanged?.Invoke(this, _status);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class BlockingStopRecordingService : IRecordingService
+    {
+        private RecordingStatus _status = RecordingStatus.Initial;
+        public TaskCompletionSource StopStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseStop { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int StopCalls { get; private set; }
+        public RecordingStatus Status => _status;
+        public event EventHandler<RecordingStatus>? StatusChanged;
+        public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
+        {
+            _status = new RecordingStatus(RecordingState.Recording, TimeSpan.Zero);
+            StatusChanged?.Invoke(this, _status);
+            return Task.CompletedTask;
+        }
+        public Task PauseAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ResumeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public async Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            StopCalls++;
+            StopStarted.TrySetResult();
+            await ReleaseStop.Task.WaitAsync(cancellationToken);
+            _status = new RecordingStatus(RecordingState.Completed, TimeSpan.Zero);
+            StatusChanged?.Invoke(this, _status);
+        }
+    }
+
+    private sealed class ThrowingStopRecordingService : IRecordingService
+    {
+        private RecordingStatus _status = RecordingStatus.Initial;
+        public RecordingStatus Status => _status;
+        public event EventHandler<RecordingStatus>? StatusChanged;
+        public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
+        {
+            _status = new RecordingStatus(RecordingState.Recording, TimeSpan.Zero);
+            StatusChanged?.Invoke(this, _status);
+            return Task.CompletedTask;
+        }
+        public Task PauseAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ResumeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException(new InvalidOperationException("Falha na parada simulada"));
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = now;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+        public void Advance(TimeSpan elapsed) => _utcNow += elapsed;
     }
 }

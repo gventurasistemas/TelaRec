@@ -100,7 +100,10 @@
   <data name="ScheduleFormHint"><value>Pick a start time and duration; the schedule uses the current settings.</value></data>
   <data name="SchedulesEmpty"><value>No schedules in this session.</value></data>
   <data name="ScheduledStatePending"><value>Pending</value></data>
+  <data name="ScheduledStateStarting"><value>Starting</value></data>
   <data name="ScheduledStateRecording"><value>Recording</value></data>
+  <data name="ScheduledStateCancelling"><value>Cancelling</value></data>
+  <data name="ScheduledStateCancelled"><value>Cancelled</value></data>
   <data name="ScheduledStateCompleted"><value>Completed</value></data>
   <data name="ScheduledStateRejected"><value>Rejected</value></data>
   <data name="ScheduledStateFailed"><value>Failed</value></data>
@@ -118,6 +121,7 @@
   <data name="ScheduleCreateFailed"><value>Could not schedule: {0}</value></data>
   <data name="ScheduleMissingTimes"><value>Provide a future start time and a positive duration.</value></data>
   <data name="ScheduleCancelled"><value>Schedule cancelled.</value></data>
+  <data name="ScheduleCancelFailed"><value>Could not cancel the scheduled recording: {0}</value></data>
   <data name="DiagnosticsEmpty"><value>No diagnostics recorded.</value></data>
   <data name="DiagnosticsHint"><value>The last 20 events appear here and in the file log.</value></data>
   <data name="SeverityInformation"><value>Info</value></data>

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using TelaRec.Core.Contracts;
 using TelaRec.Core.Recording;
+using TelaRec.Core.Reliability;
 using TelaRec.Infrastructure.Recording;
 
 namespace TelaRec.Tests;
@@ -176,6 +177,48 @@ public class RecordingServiceTests
     }
 
     [Fact]
+    public async Task Complete_failure_preserves_recoverable_file_and_journal_diagnostic()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var journal = new FakeJournal();
+        var encoder = new FakeEncoder { CreateFileOnStart = true, FailOnComplete = true };
+        await using var service = new RecordingService(new FakeCapture(), encoder, new FakeAudio(), NullLogger<RecordingService>.Instance, journal: journal);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "complete-failure.mp4")));
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopAsync());
+
+            var recovered = Assert.Single(Directory.GetFiles(folder, "complete-failure-recuperavel-*.mp4"));
+            Assert.Contains(recovered, error.Message);
+            Assert.Empty(Directory.GetFiles(folder, "*.partial.mp4"));
+            Assert.Equal(0, journal.Completed);
+            Assert.Contains(journal.Updates, update => update.Error?.Contains(recovered, StringComparison.Ordinal) == true);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Final_output_collision_preserves_recoverable_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var output = Path.Combine(folder, "move-failure.mp4");
+        var encoder = new FakeEncoder { BeforeComplete = () => File.WriteAllBytes(output, [9, 8, 7]) };
+        await using var service = new RecordingService(new FakeCapture(), encoder, new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(output));
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopAsync());
+
+            var recovered = Assert.Single(Directory.GetFiles(folder, "move-failure-recuperavel-*.mp4"));
+            Assert.Contains(recovered, error.Message);
+            Assert.Equal(new byte[] { 9, 8, 7 }, await File.ReadAllBytesAsync(output));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
     public async Task Existing_output_is_never_overwritten()
     {
         var path = Path.Combine(Path.GetTempPath(), $"TelaRec-{Guid.NewGuid():N}.mp4");
@@ -312,8 +355,10 @@ public class RecordingServiceTests
     private sealed class FakeEncoder : IVideoEncoderService
     {
         public bool FailOnStart;
+        public bool FailOnComplete;
         public bool CreateFileOnStart;
         public VideoCodec? UnsupportedCodec;
+        public Action? BeforeComplete;
         public int VideoFrames;
         public int Completed;
         public RecordingRequest? LastRequest { get; private set; }
@@ -333,6 +378,8 @@ public class RecordingServiceTests
         public Task EncodeAudioAsync(AudioFrame frame, CancellationToken cancellationToken = default) { AudioFrames.Add(frame); return Task.CompletedTask; }
         public Task CompleteAsync(CancellationToken cancellationToken = default)
         {
+            BeforeComplete?.Invoke();
+            if (FailOnComplete) throw new InvalidOperationException("Falha ao finalizar o encoder");
             File.WriteAllBytes(_path!, [1, 2, 3]); Completed++; return Task.CompletedTask;
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -341,6 +388,25 @@ public class RecordingServiceTests
     private sealed class ThrowingExporterFactory : IRecordingExporterFactory
     {
         public IRecordingExporter GetExporter(RecordingProfile profile) => new ThrowingExporter();
+    }
+
+    private sealed class FakeJournal : IRecordingSessionJournal
+    {
+        public List<(RecordingState State, string? Error)> Updates { get; } = [];
+        public int Completed { get; private set; }
+        public Task CreateAsync(RecordingJournalEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateAsync(Guid sessionId, RecordingState state, string? error = null, CancellationToken cancellationToken = default)
+        {
+            Updates.Add((state, error));
+            return Task.CompletedTask;
+        }
+        public Task CompleteAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        {
+            Completed++;
+            return Task.CompletedTask;
+        }
+        public Task<RecoveryResult> RecoverAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RecoveryResult(0, 0, []));
     }
 
     private sealed class ThrowingExporter : IRecordingExporter

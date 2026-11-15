@@ -112,7 +112,10 @@ public static class Strings
     public static string ScheduleFormHint => Get(nameof(ScheduleFormHint));
     public static string SchedulesEmpty => Get(nameof(SchedulesEmpty));
     public static string ScheduledStatePending => Get(nameof(ScheduledStatePending));
+    public static string ScheduledStateStarting => Get(nameof(ScheduledStateStarting));
     public static string ScheduledStateRecording => Get(nameof(ScheduledStateRecording));
+    public static string ScheduledStateCancelling => Get(nameof(ScheduledStateCancelling));
+    public static string ScheduledStateCancelled => Get(nameof(ScheduledStateCancelled));
     public static string ScheduledStateCompleted => Get(nameof(ScheduledStateCompleted));
     public static string ScheduledStateRejected => Get(nameof(ScheduledStateRejected));
     public static string ScheduledStateFailed => Get(nameof(ScheduledStateFailed));
@@ -130,6 +133,7 @@ public static class Strings
     public static string ScheduleCreateFailed => Get(nameof(ScheduleCreateFailed));
     public static string ScheduleMissingTimes => Get(nameof(ScheduleMissingTimes));
     public static string ScheduleCancelled => Get(nameof(ScheduleCancelled));
+    public static string ScheduleCancelFailed => Get(nameof(ScheduleCancelFailed));
     public static string DiagnosticsEmpty => Get(nameof(DiagnosticsEmpty));
     public static string DiagnosticsHint => Get(nameof(DiagnosticsHint));
     public static string SeverityInformation => Get(nameof(SeverityInformation));

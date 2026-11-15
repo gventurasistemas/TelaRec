@@ -1020,17 +1020,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         try
         {
             await _scheduler.CancelAsync(scheduleId);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Falha ao cancelar agendamento {ScheduleId}", scheduleId);
-        }
-        finally
-        {
             _scheduleRules.Remove(scheduleId);
             var item = Schedules.FirstOrDefault(schedule => schedule.Id == scheduleId);
             if (item is not null) Schedules.Remove(item);
             StatusMessage = Strings.ScheduleCancelled;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Falha ao cancelar agendamento {ScheduleId}", scheduleId);
+            StatusMessage = string.Format(Strings.ScheduleCancelFailed, exception.Message);
+            _diagnostics.Report(DiagnosticSeverity.Error, "schedule.cancel_failed", StatusMessage);
         }
     }
 

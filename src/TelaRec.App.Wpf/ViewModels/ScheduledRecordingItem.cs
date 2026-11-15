@@ -32,7 +32,10 @@ public sealed class ScheduledRecordingItem : INotifyPropertyChanged
     public string StateLabel => State switch
     {
         ScheduledRecordingState.Pending => Strings.ScheduledStatePending,
+        ScheduledRecordingState.Starting => Strings.ScheduledStateStarting,
         ScheduledRecordingState.Recording => Strings.ScheduledStateRecording,
+        ScheduledRecordingState.Cancelling => Strings.ScheduledStateCancelling,
+        ScheduledRecordingState.Cancelled => Strings.ScheduledStateCancelled,
         ScheduledRecordingState.Completed => Strings.ScheduledStateCompleted,
         ScheduledRecordingState.Rejected => Strings.ScheduledStateRejected,
         _ => Strings.ScheduledStateFailed
@@ -48,7 +51,7 @@ public sealed class ScheduledRecordingItem : INotifyPropertyChanged
         _ => State == ScheduledRecordingState.Completed ? string.Empty : _status.Message ?? string.Empty
     };
 
-    public bool CanCancel => State is ScheduledRecordingState.Pending or ScheduledRecordingState.Recording;
+    public bool CanCancel => State is ScheduledRecordingState.Pending or ScheduledRecordingState.Starting or ScheduledRecordingState.Recording;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

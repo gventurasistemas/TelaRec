@@ -33,6 +33,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     private Task _journalUpdateTail = Task.CompletedTask;
     private Exception? _encodeError;
     private string? _temporaryPath;
+    private string? _preservedPartialPath;
     private string? _outputPath;
     private long _originTicks;
     private long _pauseStartedTicks;
@@ -149,6 +150,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             if (File.Exists(_outputPath))
                 throw new IOException($"Já existe uma gravação no destino: {_outputPath}");
             _temporaryPath = Path.Combine(Path.GetDirectoryName(_outputPath)!, $".{Path.GetFileNameWithoutExtension(_outputPath)}.{Guid.NewGuid():N}.partial.mp4");
+            _preservedPartialPath = null;
             _sessionId = Guid.NewGuid();
             _journalCreated = false;
             lock (_journalSync) _journalUpdateTail = Task.CompletedTask;
@@ -293,7 +295,18 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             Publish(RecordingState.Completed);
             _logger.LogInformation("Gravação concluída: {OutputPath}", _outputPath);
         }
-        catch (Exception exception) { _logger.LogError(exception, "Falha ao finalizar gravação"); Fail(exception.Message); throw; }
+        catch (Exception exception)
+        {
+            var preserved = PreservePartialAfterFinalizationFailure();
+            var message = preserved is null
+                ? $"Falha ao finalizar gravação: {exception.Message}"
+                : _profile.Container == RecordingContainer.Mp4
+                    ? $"Falha ao finalizar gravação. O arquivo recuperável foi preservado em {preserved}."
+                    : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}.";
+            _logger.LogError(exception, "{Message}", message);
+            Fail(message);
+            throw new InvalidOperationException(message, exception);
+        }
         finally { await CleanupAsync().ConfigureAwait(false); _gate.Release(); }
     }
     private void OnFrameCaptured(object? sender, VideoFrame frame)
@@ -415,7 +428,16 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         _failedCleanupTask = Task.Run(async () =>
         {
             await _gate.WaitAsync().ConfigureAwait(false);
-            try { if (_machine.State == RecordingState.Failed && _queue is not null) await CleanupAsync().ConfigureAwait(false); }
+            try
+            {
+                if (_machine.State == RecordingState.Failed && _queue is not null)
+                {
+                    var preserved = PreservePartialAfterFinalizationFailure();
+                    if (preserved is not null)
+                        Publish(RecordingState.Failed, $"Falha na gravação. O arquivo recuperável foi preservado em {preserved}.");
+                    await CleanupAsync().ConfigureAwait(false);
+                }
+            }
             catch (Exception cleanupError) { _logger.LogError(cleanupError, "Falha ao limpar gravação interrompida"); }
             finally { _gate.Release(); }
         });
@@ -481,6 +503,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             var path = Path.Combine(directory, $"{stem}-intermediario-{_sessionId:N}.mp4");
             File.Move(_temporaryPath, path);
             _temporaryPath = null;
+            _preservedPartialPath = path;
             _logger.LogWarning("Conversão externa falhou; MP4 intermediário preservado em {Path}", path);
             return path;
         }
@@ -489,6 +512,31 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             _logger.LogWarning(exception, "Não foi possível preservar o MP4 intermediário após falha de exportação");
             return null;
         }
+    }
+
+    private string? PreservePartialAfterFinalizationFailure()
+    {
+        if (_preservedPartialPath is not null) return _preservedPartialPath;
+        if (_temporaryPath is null || !File.Exists(_temporaryPath)) return null;
+
+        var originalPath = _temporaryPath;
+        var directory = Path.GetDirectoryName(originalPath)!;
+        var stem = Path.GetFileNameWithoutExtension(_outputPath ?? "TelaRec");
+        var recoveryPath = Path.Combine(directory, $"{stem}-recuperavel-{_sessionId:N}.mp4");
+        try
+        {
+            File.Move(originalPath, recoveryPath);
+            _temporaryPath = null;
+            _preservedPartialPath = recoveryPath;
+            _logger.LogWarning("Finalização falhou; arquivo recuperável preservado em {Path}", recoveryPath);
+        }
+        catch (Exception exception)
+        {
+            // O arquivo original continua sendo a única evidência recuperável.
+            _preservedPartialPath = originalPath;
+            _logger.LogWarning(exception, "Não foi possível renomear o arquivo parcial; preservando em {Path}", originalPath);
+        }
+        return _preservedPartialPath;
     }
     private async Task CleanupAsync()
     {
@@ -500,14 +548,17 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         try { if (_microphone is not null) await _microphone.StopAsync().ConfigureAwait(false); } catch (Exception e) { _logger.LogWarning(e, "Falha ao liberar microfone"); }
         if (_encodeTask is not null) await _encodeTask.ConfigureAwait(false);
         await _encoder.DisposeAsync().ConfigureAwait(false);
-        if (_temporaryPath is not null && File.Exists(_temporaryPath)) File.Delete(_temporaryPath);
+        if (_preservedPartialPath is null && _temporaryPath is not null && File.Exists(_temporaryPath)) File.Delete(_temporaryPath);
         if (_journal is not null && _journalCreated)
         {
             await FlushJournalUpdatesAsync().ConfigureAwait(false);
-            await _journal.CompleteAsync(_sessionId).ConfigureAwait(false);
+            if (_preservedPartialPath is null)
+                await _journal.CompleteAsync(_sessionId).ConfigureAwait(false);
+            else
+                _logger.LogWarning("Journal da sessão {SessionId} foi preservado para recuperação de {Path}", _sessionId, _preservedPartialPath);
             _journalCreated = false;
         }
-        _queue = null; _encodeTask = null; _temporaryPath = null; _outputPath = null;
+        _queue = null; _encodeTask = null; _temporaryPath = null; _outputPath = null; _preservedPartialPath = null;
     }
     private static long NowTicks() => (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
     public ValueTask DisposeAsync()

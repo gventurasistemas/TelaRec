@@ -18,6 +18,8 @@ public sealed class RecordingScheduler : IRecordingScheduler
     private readonly IRecordingDiagnostics _diagnostics;
     private readonly IScheduledRecordingStore? _store;
     private readonly Dictionary<Guid, (ScheduledRecording Rule, ScheduledRecordingStatus Status)> _rules = [];
+    private readonly Dictionary<Guid, TaskCompletionSource> _cancellationCompletions = [];
+    private readonly TimeProvider _timeProvider;
     private readonly object _sync = new();
     private readonly SemaphoreSlim _tickGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -27,13 +29,14 @@ public sealed class RecordingScheduler : IRecordingScheduler
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private int _initializationStarted;
 
-    public RecordingScheduler(IRecordingService recording, IRecordingAvailabilityProbe availability, IRecordingDiagnostics diagnostics, ILogger<RecordingScheduler> logger, IScheduledRecordingStore? store = null)
+    public RecordingScheduler(IRecordingService recording, IRecordingAvailabilityProbe availability, IRecordingDiagnostics diagnostics, ILogger<RecordingScheduler> logger, IScheduledRecordingStore? store = null, TimeProvider? timeProvider = null)
     {
         _recording = recording;
         _availability = availability;
         _diagnostics = diagnostics;
         _logger = logger;
         _store = store;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _timer = new System.Threading.Timer(static state => ((RecordingScheduler)state!).QueueTick(), this,
             TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
@@ -59,7 +62,7 @@ public sealed class RecordingScheduler : IRecordingScheduler
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!schedule.IsValid) throw new ArgumentException("O período agendado deve estar no futuro e possuir fim posterior ao início.");
+        if (!schedule.IsValidAt(_timeProvider.GetUtcNow())) throw new ArgumentException("O período agendado deve estar no futuro e possuir fim posterior ao início.");
         ScheduledRecordingStatus status;
         lock (_sync)
         {
@@ -77,8 +80,84 @@ public sealed class RecordingScheduler : IRecordingScheduler
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_sync) _rules.Remove(scheduleId);
-        await PersistAsync(cancellationToken).ConfigureAwait(false);
+        ScheduledRecordingStatus? published = null;
+        Task? inFlightCancellation = null;
+        TaskCompletionSource? cancellationCompletion = null;
+        var mustStopRecording = false;
+
+        lock (_sync)
+        {
+            if (!_rules.TryGetValue(scheduleId, out var current)) return;
+
+            if (current.Status.State == ScheduledRecordingState.Cancelling)
+            {
+                inFlightCancellation = _cancellationCompletions.TryGetValue(scheduleId, out var existing)
+                    ? existing.Task
+                    : Task.CompletedTask;
+            }
+            else if (current.Status.State is ScheduledRecordingState.Starting or ScheduledRecordingState.Recording)
+            {
+                published = new ScheduledRecordingStatus(scheduleId, ScheduledRecordingState.Cancelling);
+                _rules[scheduleId] = (current.Rule, published);
+                cancellationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _cancellationCompletions[scheduleId] = cancellationCompletion;
+                mustStopRecording = true;
+            }
+            else
+            {
+                _rules.Remove(scheduleId);
+                published = new ScheduledRecordingStatus(scheduleId, ScheduledRecordingState.Cancelled);
+            }
+        }
+
+        if (inFlightCancellation is not null)
+        {
+            await inFlightCancellation.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!mustStopRecording)
+        {
+            if (published is not null) Publish(published);
+            await PersistAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        Publish(published!);
+        try
+        {
+            // O tick pode ter marcado o item como Starting e ainda estar dentro de
+            // StartAsync. Esperar seu término evita a corrida Start -> Cancel -> Start.
+            await _tickGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _tickGate.Release();
+            await _recording.StopAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_sync)
+            {
+                _rules.Remove(scheduleId);
+                _cancellationCompletions.Remove(scheduleId);
+            }
+            var cancelled = new ScheduledRecordingStatus(scheduleId, ScheduledRecordingState.Cancelled);
+            Publish(cancelled);
+            cancellationCompletion!.TrySetResult();
+            await PersistAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ScheduledRecordingStatus? restored = null;
+            lock (_sync)
+            {
+                if (_rules.TryGetValue(scheduleId, out var current) && current.Status.State == ScheduledRecordingState.Cancelling)
+                {
+                    restored = new ScheduledRecordingStatus(scheduleId, ScheduledRecordingState.Recording, exception.Message, ScheduledRecordingMessageCode.StopFailed);
+                    _rules[scheduleId] = (current.Rule, restored);
+                }
+                _cancellationCompletions.Remove(scheduleId);
+            }
+            if (restored is not null) Publish(restored);
+            cancellationCompletion!.TrySetException(exception);
+            throw;
+        }
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -93,16 +172,16 @@ public sealed class RecordingScheduler : IRecordingScheduler
             try
             {
                 var persisted = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
-                var now = DateTimeOffset.UtcNow;
+                var now = _timeProvider.GetUtcNow();
                 lock (_sync)
                 {
                     foreach (var item in persisted)
                     {
                         if (item.Rule.StopsAt <= now || item.Status.State is ScheduledRecordingState.Completed or ScheduledRecordingState.Rejected or ScheduledRecordingState.Failed)
                             continue;
-                        if (item.Rule.IsValid || item.Status.State == ScheduledRecordingState.Recording)
+                        if (item.Rule.IsValidAt(now) || item.Status.State is ScheduledRecordingState.Starting or ScheduledRecordingState.Recording or ScheduledRecordingState.Cancelling)
                         {
-                            var restoredStatus = item.Status.State == ScheduledRecordingState.Recording
+                            var restoredStatus = item.Status.State is ScheduledRecordingState.Starting or ScheduledRecordingState.Recording or ScheduledRecordingState.Cancelling
                                 ? new ScheduledRecordingStatus(item.Rule.Id, ScheduledRecordingState.Pending)
                                 : item.Status;
                             _rules[item.Rule.Id] = (item.Rule, restoredStatus);
@@ -144,7 +223,7 @@ public sealed class RecordingScheduler : IRecordingScheduler
         try
         {
             if (_disposed) return;
-            var now = DateTimeOffset.UtcNow;
+            var now = _timeProvider.GetUtcNow();
             ScheduledRecording[] starts;
             ScheduledRecording[] stops;
             lock (_sync)
@@ -162,34 +241,36 @@ public sealed class RecordingScheduler : IRecordingScheduler
             foreach (var schedule in starts)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!TryTransition(schedule.Id, ScheduledRecordingState.Pending, ScheduledRecordingState.Starting)) continue;
                 if (now >= schedule.StopsAt)
                 {
-                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Pending,
+                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Starting,
                         new ScheduledRecordingStatus(schedule.Id, ScheduledRecordingState.Rejected,
                             "O horário de término já passou.", ScheduledRecordingMessageCode.Unavailable));
                     continue;
                 }
                 if (_recording.Status.State is not (RecordingState.Idle or RecordingState.Completed or RecordingState.Failed))
                 {
-                    Reject(schedule.Id, "Já existe uma gravação ativa.", ScheduledRecordingMessageCode.ActiveRecording);
+                    Reject(schedule.Id, ScheduledRecordingState.Starting, "Já existe uma gravação ativa.", ScheduledRecordingMessageCode.ActiveRecording);
                     continue;
                 }
                 var available = _availability.Check();
                 if (!available.CanRecord)
                 {
-                    Reject(schedule.Id, available.Reason ?? "Dispositivo indisponível.", ScheduledRecordingMessageCode.Unavailable);
+                    Reject(schedule.Id, ScheduledRecordingState.Starting, available.Reason ?? "Dispositivo indisponível.", ScheduledRecordingMessageCode.Unavailable);
                     continue;
                 }
                 try
                 {
+                    if (!IsCurrent(schedule.Id, ScheduledRecordingState.Starting)) continue;
                     await _recording.StartAsync(schedule.Request, cancellationToken).ConfigureAwait(false);
-                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Pending,
+                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Starting,
                         new ScheduledRecordingStatus(schedule.Id, ScheduledRecordingState.Recording));
                 }
                 catch (Exception exception)
                 {
                     _logger.LogError(exception, "Falha ao iniciar agendamento {ScheduleId}", schedule.Id);
-                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Pending,
+                    SetIfCurrent(schedule.Id, ScheduledRecordingState.Starting,
                         new ScheduledRecordingStatus(schedule.Id, ScheduledRecordingState.Failed, exception.Message, ScheduledRecordingMessageCode.StartFailed));
                 }
             }
@@ -239,10 +320,28 @@ public sealed class RecordingScheduler : IRecordingScheduler
         }
     }
 
-    private void Reject(Guid id, string message, ScheduledRecordingMessageCode code)
+    private void Reject(Guid id, ScheduledRecordingState expected, string message, ScheduledRecordingMessageCode code)
     {
-        SetIfCurrent(id, ScheduledRecordingState.Pending, new ScheduledRecordingStatus(id, ScheduledRecordingState.Rejected, message, code));
+        SetIfCurrent(id, expected, new ScheduledRecordingStatus(id, ScheduledRecordingState.Rejected, message, code));
         _diagnostics.Report(DiagnosticSeverity.Warning, "schedule.rejected", message);
+    }
+
+    private bool TryTransition(Guid id, ScheduledRecordingState expected, ScheduledRecordingState next)
+    {
+        ScheduledRecordingStatus? status = null;
+        lock (_sync)
+        {
+            if (!_rules.TryGetValue(id, out var current) || current.Status.State != expected) return false;
+            status = new ScheduledRecordingStatus(id, next);
+            _rules[id] = (current.Rule, status);
+        }
+        Publish(status);
+        return true;
+    }
+
+    private bool IsCurrent(Guid id, ScheduledRecordingState state)
+    {
+        lock (_sync) return _rules.TryGetValue(id, out var current) && current.Status.State == state;
     }
 
     private void SetIfCurrent(Guid id, ScheduledRecordingState expected, ScheduledRecordingStatus status)

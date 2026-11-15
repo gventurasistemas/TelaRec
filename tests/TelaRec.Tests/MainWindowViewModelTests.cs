@@ -442,6 +442,36 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Failed_schedule_cancellation_keeps_item_and_reports_error()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var scheduler = new FakeScheduler { CancelException = new InvalidOperationException("Parada recusada") };
+            var diagnostics = new FakeDiagnostics();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                diagnostics: diagnostics,
+                scheduler: scheduler);
+            await viewModel.LoadAsync();
+            viewModel.ScheduledStart = DateTime.Now.AddMinutes(5);
+            viewModel.ScheduledMinutes = 10;
+            await viewModel.ScheduleRecordingAsync();
+
+            var item = Assert.Single(viewModel.Schedules);
+            await viewModel.CancelScheduleAsync(item.Id);
+
+            Assert.Single(viewModel.Schedules);
+            Assert.Equal(item.Id, viewModel.Schedules[0].Id);
+            Assert.Contains("Parada recusada", viewModel.StatusMessage);
+            Assert.Contains(viewModel.Diagnostics, diagnostic => diagnostic.Code == "schedule.cancel_failed");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Invalid_bitrate_blocks_start()
     {
         var directory = NewDirectory();
@@ -666,6 +696,7 @@ public sealed class MainWindowViewModelTests
     private sealed class FakeScheduler : IRecordingScheduler
     {
         private readonly List<ScheduledRecordingStatus> _statuses = [];
+        public Exception? CancelException { get; set; }
 
         public IReadOnlyList<ScheduledRecordingStatus> Scheduled => _statuses;
         public event EventHandler<ScheduledRecordingStatus>? StatusChanged;
@@ -680,6 +711,7 @@ public sealed class MainWindowViewModelTests
 
         public Task CancelAsync(Guid scheduleId, CancellationToken cancellationToken = default)
         {
+            if (CancelException is not null) throw CancelException;
             _statuses.RemoveAll(status => status.Id == scheduleId);
             return Task.CompletedTask;
         }
