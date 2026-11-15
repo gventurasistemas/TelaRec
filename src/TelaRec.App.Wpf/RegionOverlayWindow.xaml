@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
         xmlns:resources="clr-namespace:TelaRec.App.Wpf.Resources"
+        Title="{resources:Loc Key=SelectRegion}"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="Manual"
         AllowsTransparency="True" Background="#50000000" Topmost="True">
     <Grid>

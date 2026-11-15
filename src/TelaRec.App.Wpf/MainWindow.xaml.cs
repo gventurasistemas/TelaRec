@@ -192,9 +192,7 @@ public partial class MainWindow : Window
             ?? Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);
         var dpi = GetDpiScale(screen);
         var overlay = new RegionOverlayWindow(screen, dpi.X, dpi.Y) { Owner = this };
-        Hide();
         overlay.ShowDialog();
-        Show();
         Activate();
         if (overlay.Result is not null) _viewModel.SelectTarget(overlay.Result);
     }

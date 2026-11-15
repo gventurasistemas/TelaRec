@@ -7,13 +7,16 @@ using TelaRec.Core.Recording;
 using TelaRec.Infrastructure.Recording;
 
 var path = args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(Path.GetTempPath(), "TelaRec-smoke.mp4");
+var systemAudioEnabled = args.Contains("--audio");
+var microphoneEnabled = args.Contains("--microphone");
 await using var recorder = new RecordingService(
     new WindowsGraphicsCaptureService(new TestLogger<WindowsGraphicsCaptureService>()),
     new MediaFoundationVideoEncoderService(new TestLogger<MediaFoundationVideoEncoderService>()),
     new WasapiLoopbackAudioCaptureService(new TestLogger<WasapiLoopbackAudioCaptureService>()),
     new TestLogger<RecordingService>(),
     new RecordingExporterFactory([new FfmpegRecordingExporter(new TestLogger<FfmpegRecordingExporter>())]),
-    clickCapture: new WindowsClickCaptureService(new TestLogger<WindowsClickCaptureService>()));
+    clickCapture: new WindowsClickCaptureService(new TestLogger<WindowsClickCaptureService>()),
+    microphone: new WasapiMicrophoneCaptureService(new TestLogger<WasapiMicrophoneCaptureService>()));
 recorder.StatusChanged += (_, status) => Console.WriteLine($"{status.State}: {status.ErrorMessage}");
 try
 {
@@ -33,8 +36,16 @@ var overlays = new RecordingOverlaySettings(
         : new WatermarkSettings(),
     new WebcamOverlaySettings(),
     clickEffects);
-    await recorder.StartAsync(new RecordingRequest(path, 15, args.Contains("--audio"), target, profile, overlays, ShowCursor: !args.Contains("--cursor-off")));
-    using var output = args.Contains("--audio") && !args.Contains("--silent") ? new WaveOutEvent() : null;
+    await recorder.StartAsync(new RecordingRequest(
+        path,
+        15,
+        systemAudioEnabled,
+        target,
+        profile,
+        overlays,
+        ShowCursor: !args.Contains("--cursor-off"),
+        AudioMix: new AudioMixSettings(systemAudioEnabled, microphoneEnabled)));
+    using var output = systemAudioEnabled && !args.Contains("--silent") ? new WaveOutEvent() : null;
     if (output is not null)
     {
         output.Init(new SignalGenerator(48000, 2) { Frequency = 440, Gain = 0.02 }.ToWaveProvider16());

@@ -454,7 +454,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         set { if (_settings.CloseToTray != value) { _settings.CloseToTray = value; OnPropertyChanged(); } }
     }
 
-    public string AudioStatusText => AudioSourceMode == "none" ? Strings.AudioOff : Strings.AudioOn;
+    public string AudioStatusText => AudioSourceMode switch
+    {
+        "system" => $"🔊 {Strings.AudioSourceSystem}",
+        "microphone" => $"🎙 {Strings.AudioSourceMicrophone}",
+        "both" => $"🔊 + 🎙 {Strings.AudioSourceBoth}",
+        _ => Strings.AudioOff
+    };
 
     private void NotifyAudioSettingsChanged()
     {

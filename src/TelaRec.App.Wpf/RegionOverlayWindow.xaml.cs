@@ -17,6 +17,8 @@ public partial class RegionOverlayWindow : Window
     private CaptureTarget.Region? _selection;
 
     public CaptureTarget.Region? Result { get; private set; }
+    internal bool IsDrawing => _drawing;
+    internal CaptureTarget.Region? CurrentSelection => _selection;
 
     public RegionOverlayWindow(System.Windows.Forms.Screen screen, double dpiScaleX, double dpiScaleY)
     {
@@ -33,8 +35,15 @@ public partial class RegionOverlayWindow : Window
 
     private void Start(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is not Canvas) return;
-        _start = e.GetPosition(Surface);
+        BeginSelection(
+            e.GetPosition(Surface),
+            TopLeft.IsMouseOver || TopRight.IsMouseOver || BottomLeft.IsMouseOver || BottomRight.IsMouseOver);
+    }
+
+    internal void BeginSelection(Point start, bool isOverResizeHandle)
+    {
+        if (isOverResizeHandle) return;
+        _start = start;
         _drawing = true;
         _selection = null;
         SetHandlesVisibility(Visibility.Collapsed);
@@ -81,7 +90,7 @@ public partial class RegionOverlayWindow : Window
         RenderSelection();
     }
 
-    private void UpdateSelectionFromDip(Point first, Point second)
+    internal void UpdateSelectionFromDip(Point first, Point second)
     {
         var left = _screenBounds.Left + (int)Math.Round(Math.Min(first.X, second.X) * _dpiScaleX);
         var top = _screenBounds.Top + (int)Math.Round(Math.Min(first.Y, second.Y) * _dpiScaleY);

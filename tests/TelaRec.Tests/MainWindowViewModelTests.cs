@@ -490,6 +490,37 @@ public sealed class MainWindowViewModelTests
         }
     }
 
+    [Fact]
+    public void Audio_status_identifies_each_enabled_source()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings { OutputDirectory = directory }
+            };
+            var viewModel = CreateViewModel(
+                settings,
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)));
+
+            viewModel.SystemAudioEnabled = true;
+            Assert.Contains(Strings.AudioSourceSystem, viewModel.AudioStatusText);
+            Assert.DoesNotContain(Strings.AudioSourceMicrophone, viewModel.AudioStatusText);
+
+            viewModel.MicrophoneEnabled = true;
+            Assert.Contains(Strings.AudioSourceBoth, viewModel.AudioStatusText);
+
+            viewModel.SystemAudioEnabled = false;
+            Assert.Contains(Strings.AudioSourceMicrophone, viewModel.AudioStatusText);
+
+            viewModel.MicrophoneEnabled = false;
+            Assert.Equal(Strings.AudioOff, viewModel.AudioStatusText);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     private sealed class FakeRecordingService : IRecordingService
     {
         public bool StartCalled { get; private set; }
