@@ -69,7 +69,7 @@ public partial class MainWindow : Window
             Text = "TelaRec",
             Visible = true,
             ContextMenuStrip = menu,
-            Icon = System.Drawing.SystemIcons.Application
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application
         };
         _tray.DoubleClick += (_, _) => RestoreWindow();
     }
@@ -206,17 +206,72 @@ public partial class MainWindow : Window
             .ToList();
         var list = new System.Windows.Controls.ListBox
         {
-            ItemsSource = windows,
-            DisplayMemberPath = nameof(DesktopWindow.Title),
-            Margin = new Thickness(12)
+            Margin = new Thickness(12),
+            HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch
         };
+        var previewImages = new List<(DesktopWindow Window, System.Windows.Controls.Image Image)>();
+        foreach (var window in windows)
+        {
+            var previewImage = new System.Windows.Controls.Image
+            {
+                Width = 180,
+                Height = 100,
+                Stretch = System.Windows.Media.Stretch.Uniform
+            };
+            var previewContent = new System.Windows.Controls.Grid();
+            previewContent.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "\uE8A7",
+                FontFamily = new System.Windows.Media.FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                FontSize = 30,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(170, 180, 195)),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            previewContent.Children.Add(previewImage);
+            var preview = new System.Windows.Controls.Border
+            {
+                Width = 184,
+                Height = 104,
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(16, 19, 26)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
+                BorderThickness = new Thickness(1),
+                Child = previewContent
+            };
+            var title = new System.Windows.Controls.TextBlock
+            {
+                Text = window.Title,
+                Margin = new Thickness(14, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 72
+            };
+            var content = new System.Windows.Controls.Grid { Margin = new Thickness(4) };
+            content.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = GridLength.Auto });
+            content.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            System.Windows.Controls.Grid.SetColumn(title, 1);
+            content.Children.Add(preview);
+            content.Children.Add(title);
+
+            list.Items.Add(new System.Windows.Controls.ListBoxItem
+            {
+                Content = content,
+                Tag = window,
+                Padding = new Thickness(4),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
+                ToolTip = window.Title
+            });
+            previewImages.Add((window, previewImage));
+        }
         var panel = new System.Windows.Controls.DockPanel();
         var button = new System.Windows.Controls.Button
         {
             Content = Strings.UseWindow,
             Margin = new Thickness(12),
             Padding = new Thickness(12, 6, 12, 6),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Right
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            IsEnabled = false
         };
         System.Windows.Controls.DockPanel.SetDock(button, System.Windows.Controls.Dock.Bottom);
         panel.Children.Add(button);
@@ -225,14 +280,27 @@ public partial class MainWindow : Window
         {
             Title = Strings.SelectWindow,
             Owner = this,
-            Width = 480,
-            Height = 380,
+            Width = 720,
+            Height = 540,
+            MinWidth = 560,
+            MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = panel
         };
+        list.SelectionChanged += (_, _) => button.IsEnabled = list.SelectedItem is not null;
         button.Click += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
-        if (dialog.ShowDialog() == true && list.SelectedItem is DesktopWindow selected)
+        dialog.ContentRendered += async (_, _) =>
+        {
+            foreach (var (window, image) in previewImages)
+            {
+                var source = await Task.Run(() => WindowThumbnailProvider.Capture(window.Handle, 180, 100));
+                if (!dialog.IsVisible) return;
+                image.Source = source;
+            }
+        };
+        if (dialog.ShowDialog() == true
+            && list.SelectedItem is System.Windows.Controls.ListBoxItem { Tag: DesktopWindow selected })
             _viewModel.SelectTarget(new CaptureTarget.Window(selected.Handle, selected.Title));
     }
 
