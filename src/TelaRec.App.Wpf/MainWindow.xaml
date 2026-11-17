@@ -303,12 +303,15 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <CheckBox Grid.ColumnSpan="2" Content="{resources:Loc Key=AudioSystem}" IsChecked="{Binding SystemAudioEnabled}" />
                                 <CheckBox Grid.Row="1" Grid.ColumnSpan="2" Margin="0,12,0,0"
-                                          Content="{resources:Loc Key=ShowCursor}" IsChecked="{Binding ShowCursor}" />
+                                          Content="{resources:Loc Key=AudioMicrophone}" IsChecked="{Binding MicrophoneEnabled}" />
                                 <CheckBox Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0"
+                                          Content="{resources:Loc Key=ShowCursor}" IsChecked="{Binding ShowCursor}" />
+                                <CheckBox Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0"
                                           Content="{resources:Loc Key=EnableClickEffects}" IsChecked="{Binding ShowClickEffects}" />
                             </Grid>
                         </Border>
