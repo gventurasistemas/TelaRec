@@ -66,6 +66,7 @@ public static class Strings
     public static string ClickEffects => Get(nameof(ClickEffects));
     public static string EnableClickEffects => Get(nameof(EnableClickEffects));
     public static string Format => Get(nameof(Format));
+    public static string FormatDependencyHint => Get(nameof(FormatDependencyHint));
     public static string Resolution => Get(nameof(Resolution));
     public static string Bitrate => Get(nameof(Bitrate));
     public static string Codec => Get(nameof(Codec));

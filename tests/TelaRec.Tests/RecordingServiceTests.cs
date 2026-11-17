@@ -177,6 +177,35 @@ public class RecordingServiceTests
     }
 
     [Fact]
+    public async Task Missing_external_exporter_fails_before_capture_or_partial_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var capture = new FakeCapture();
+        var audio = new FakeAudio();
+        var encoder = new FakeEncoder();
+        var profile = new RecordingProfile(RecordingContainer.Mkv, VideoCodec.H264, 1_000_000, 30, 640, 480);
+        await using var service = new RecordingService(
+            capture,
+            encoder,
+            audio,
+            NullLogger<RecordingService>.Instance,
+            new SingleExporterFactory(new UnavailablePreflightExporter()));
+        try
+        {
+            var error = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                service.StartAsync(new RecordingRequest(Path.Combine(folder, "without-ffmpeg.mkv"), Profile: profile, SystemAudioEnabled: true)));
+
+            Assert.Contains("FFmpeg", error.Message);
+            Assert.Equal(0, capture.StartCalls);
+            Assert.Equal(0, audio.StartCalls);
+            Assert.Null(encoder.LastRequest);
+            Assert.Empty(Directory.GetFiles(folder));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
     public async Task Complete_failure_preserves_recoverable_file_and_journal_diagnostic()
     {
         var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
@@ -388,6 +417,20 @@ public class RecordingServiceTests
     private sealed class ThrowingExporterFactory : IRecordingExporterFactory
     {
         public IRecordingExporter GetExporter(RecordingProfile profile) => new ThrowingExporter();
+    }
+
+    private sealed class SingleExporterFactory(IRecordingExporter exporter) : IRecordingExporterFactory
+    {
+        public IRecordingExporter GetExporter(RecordingProfile profile) => exporter;
+    }
+
+    private sealed class UnavailablePreflightExporter : IRecordingExporter, IRecordingExportPreflight
+    {
+        public bool CanExport(RecordingProfile profile) => true;
+        public Task<RecordingExportPreflightResult> CheckAvailabilityAsync(RecordingProfile profile, CancellationToken cancellationToken = default) =>
+            Task.FromResult(RecordingExportPreflightResult.Unavailable("FFmpeg não encontrado; selecione MP4."));
+        public Task ExportAsync(string sourcePath, string destinationPath, RecordingProfile profile, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("A exportação não deveria ser iniciada.");
     }
 
     private sealed class FakeJournal : IRecordingSessionJournal

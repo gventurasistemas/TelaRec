@@ -176,6 +176,16 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                 throw new ArgumentException($"A saída deve usar a extensão {_profile.FileExtension}.", nameof(request));
             if (_profile.Container != RecordingContainer.Mp4 && _exporters is null)
                 throw new NotSupportedException("Nenhum backend de pós-processamento foi configurado.");
+            if (_profile.Container != RecordingContainer.Mp4)
+            {
+                var exporter = _exporters!.GetExporter(_profile);
+                if (exporter is IRecordingExportPreflight preflight)
+                {
+                    var availability = await preflight.CheckAvailabilityAsync(_profile, cancellationToken).ConfigureAwait(false);
+                    if (!availability.IsAvailable)
+                        throw new NotSupportedException(availability.Message);
+                }
+            }
             if (_machine.State == RecordingState.Failed && _queue is not null)
                 await CleanupAsync().ConfigureAwait(false);
             _failedCleanupTask = null;
@@ -328,8 +338,8 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                     var preserved = PreserveIntermediateAfterExportFailure();
                     throw new InvalidOperationException(
                         preserved is null
-                            ? "A conversão falhou; o arquivo final não foi publicado."
-                            : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}.",
+                            ? $"A conversão falhou; o arquivo final não foi publicado. Detalhe: {exception.Message}"
+                            : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}. Detalhe: {exception.Message}",
                         exception);
                 }
             }

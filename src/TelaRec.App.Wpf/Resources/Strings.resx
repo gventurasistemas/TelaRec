@@ -54,6 +54,7 @@
   <data name="ClickEffects"><value>Efeitos de clique</value></data>
   <data name="EnableClickEffects"><value>Destacar cliques</value></data>
   <data name="Format"><value>Formato</value></data>
+  <data name="FormatDependencyHint"><value>MP4 usa componentes nativos do Windows. MKV, MOV e GIF exigem FFmpeg configurado e são verificados antes de gravar.</value></data>
   <data name="Resolution"><value>Resolução</value></data>
   <data name="Bitrate"><value>Bitrate (bps)</value></data>
   <data name="Codec"><value>Codec</value></data>

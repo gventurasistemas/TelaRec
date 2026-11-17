@@ -8,6 +8,8 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $projectPath = Join-Path $repoRoot 'src\TelaRec.App.Wpf\TelaRec.App.Wpf.csproj'
 $solutionPath = Join-Path $repoRoot 'TelaRec.sln'
 $propsPath = Join-Path $repoRoot 'Directory.Build.props'
+$licensePath = Join-Path $repoRoot 'LICENSE'
+$thirdPartyNoticesPath = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md'
 $artifactsRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'artifacts\portable'))
 
 function Assert-SafeChildPath {
@@ -88,13 +90,16 @@ function Test-Manifest {
 function Test-PublishContents {
     param([string]$PublishDirectory, [string]$Version)
 
-    $required = @('TelaRec.App.Wpf.exe', 'TelaRec.App.Wpf.dll', 'TelaRec.App.Wpf.runtimeconfig.json', 'TelaRec.App.Wpf.deps.json')
+    $required = @('TelaRec.App.Wpf.exe', 'TelaRec.App.Wpf.dll', 'TelaRec.App.Wpf.runtimeconfig.json', 'TelaRec.App.Wpf.deps.json', 'LICENSE', 'THIRD-PARTY-NOTICES.md')
     foreach ($name in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $name) -PathType Leaf)) { throw "Arquivo obrigatório ausente: $name" }
     }
     $forbiddenExtensions = @('.pdb', '.cs', '.csproj', '.sln', '.user', '.suo')
+    $forbiddenNames = @('ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')
     $unexpected = Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File | Where-Object {
-        $forbiddenExtensions -contains $_.Extension.ToLowerInvariant() -or $_.Name -match '(?i)(development|testhost|xunit)'
+        $forbiddenExtensions -contains $_.Extension.ToLowerInvariant() -or
+        $forbiddenNames -contains $_.Name.ToLowerInvariant() -or
+        $_.Name -match '(?i)(development|testhost|xunit)'
     }
     if ($unexpected) { throw "Arquivos proibidos na publicação: $($unexpected.FullName -join ', ')" }
     $fileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $PublishDirectory 'TelaRec.App.Wpf.exe')).ProductVersion
@@ -121,6 +126,15 @@ function New-DeterministicZip {
         }
     }
     finally { $archive.Dispose() }
+}
+
+function Add-DistributionDocuments {
+    param([Parameter(Mandatory)][string]$PublishDirectory)
+
+    foreach ($document in @($licensePath, $thirdPartyNoticesPath)) {
+        if (-not (Test-Path -LiteralPath $document -PathType Leaf)) { throw "Documento obrigatório ausente: $document" }
+        Copy-Item -LiteralPath $document -Destination (Join-Path $PublishDirectory (Split-Path -Leaf $document)) -Force
+    }
 }
 
 function Test-PortableStartup {
@@ -159,6 +173,7 @@ New-Item -ItemType Directory -Force -Path $publishDirectory | Out-Null
 Invoke-Dotnet -Arguments @('test', $solutionPath, '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'tests.log')
 Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$publishDirectory", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish.log')
 
+Add-DistributionDocuments -PublishDirectory $publishDirectory
 Test-PublishContents -PublishDirectory $publishDirectory -Version $version
 $commit = [string](& git -C $repoRoot rev-parse HEAD)
 $commit = $commit.Trim()
@@ -183,6 +198,7 @@ Test-Manifest -PublishDirectory $publishDirectory -ManifestPath $manifestPath
 # Uma segunda publicação no mesmo commit deve produzir exatamente o mesmo manifesto.
 New-Item -ItemType Directory -Force -Path $reproduciblePublishDirectory | Out-Null
 Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$reproduciblePublishDirectory", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish-reproducibility.log')
+Add-DistributionDocuments -PublishDirectory $reproduciblePublishDirectory
 Test-PublishContents -PublishDirectory $reproduciblePublishDirectory -Version $version
 Copy-Item -LiteralPath $releasePath -Destination (Join-Path $reproduciblePublishDirectory 'RELEASE.json')
 $reproducibleManifest = Join-Path $runRoot 'MANIFEST.reproducibility.sha256'
