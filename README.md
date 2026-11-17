@@ -136,7 +136,7 @@ tests/TelaRec.Tests          Testes de regras e do serviço de gravação
 tools/TelaRec.Smoke          Gravação curta de validação no desktop
 ```
 
-## Executar
+## Executar do código-fonte
 
 Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela. O aplicativo é configurado para `win-x64`; o SDK Windows 10.0.26100 instalado nesta máquina é usado para gerar as projeções WinRT, mantendo a versão mínima suportada em 19041.
 
@@ -150,6 +150,22 @@ dotnet publish src/TelaRec.App.Wpf -c Release -r win-x64 --self-contained false
 Na interface, escolha o monitor e o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região**, arraste o retângulo e ajuste os cantos se necessário. Use **Prévia** para verificar o alvo antes de gravar. A seleção visual fecha antes do início da captura.
 
 Atalhos padrão: `Ctrl+Alt+R` inicia/para, `Ctrl+Alt+P` pausa/retoma e `Ctrl+Alt+S` captura a tela. Todos podem ser alterados na aba Configurações e passam a valer ao salvar.
+
+## Distribuição portátil oficial
+
+O pacote oficial é um ZIP `win-x64` **self-contained**: o computador de destino precisa de Windows 10 versão 2004 (build 19041) ou posterior, x64 e sessão gráfica, mas não precisa ter SDK ou runtime .NET instalado. O pacote não usa single-file nem trimming, pois WPF, WinRT/COM, Media Foundation e bibliotecas nativas carregam componentes dinamicamente. PDBs e arquivos de desenvolvimento são bloqueados pelo empacotador.
+
+No repositório, execute um único comando em PowerShell:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Publish-Portable.ps1
+```
+
+Ele executa todos os testes, publica duas vezes com `PortableWinX64`, compara os manifestos SHA-256 para verificar reprodutibilidade, gera o ZIP com ordem/timestamp estáveis e valida o startup direto do `.exe` extraído com `DOTNET_ROOT` inválido. A saída fica em `artifacts\portable\TelaRec-<versão>-win-x64\` e contém o ZIP, `MANIFEST.sha256`, o hash do ZIP, `RELEASE.json` e logs de teste/publicação. O tamanho exato do pacote é exibido pelo script e deve ser registrado junto à release; ele varia com o runtime .NET e DLLs nativas do Windows.
+
+O script limpa exclusivamente sua própria pasta versionada sob `artifacts\portable`; ele valida o caminho antes de qualquer remoção e nunca atua recursivamente na raiz do repositório. Os manifestos descrevem os arquivos extraídos; o hash ao lado do ZIP valida o pacote publicado. FFmpeg não acompanha a distribuição: MKV, MOV e GIF continuam exigindo `ffmpeg.exe` fornecido pelo usuário ao lado do aplicativo ou por `TELAREC_FFMPEG_PATH`.
+
+Checklist da máquina limpa: extraia o ZIP em um caminho com espaços sem privilégios administrativos; confirme que não há SDK/runtime .NET instalado; abra `TelaRec.App.Wpf.exe`; configure uma pasta de saída gravável; grave e reproduza um clipe H.264; feche e abra novamente. Repita para áudio e HEVC quando suportados pelo driver.
 
 ## Validação manual
 
