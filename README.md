@@ -136,6 +136,8 @@ tests/TelaRec.Tests          Testes de regras e do serviço de gravação
 tools/TelaRec.Smoke          Gravação curta de validação no desktop
 ```
 
+Consulte também [arquitetura e pipeline](docs/arquitetura.md), [operação e suporte](docs/operacao.md) e os [ADRs](docs/adr). A implementação canônica da seleção de região fica em `src/TelaRec.App.Wpf/RegionOverlayWindow`; não há cópia ativa na raiz do repositório.
+
 ## Executar do código-fonte
 
 Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela. O aplicativo é configurado para `win-x64`; o SDK Windows 10.0.26100 instalado nesta máquina é usado para gerar as projeções WinRT, mantendo a versão mínima suportada em 19041.
@@ -144,8 +146,9 @@ Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e ses
 dotnet restore TelaRec.sln
 dotnet test TelaRec.sln
 dotnet run --project src/TelaRec.App.Wpf
-dotnet publish src/TelaRec.App.Wpf -c Release -r win-x64 --self-contained false
 ```
+
+Use o script de publicação abaixo para qualquer release; o comando `dotnet publish` isolado não é o fluxo oficial porque não gera manifesto, hash, validação de conteúdo nem prova de reprodutibilidade.
 
 Na interface, escolha o monitor e o modo. Em **Janela selecionada**, clique em **Selecionar janela**; em **Região personalizada**, clique em **Selecionar região**, arraste o retângulo e ajuste os cantos se necessário. Use **Prévia** para verificar o alvo antes de gravar. A seleção visual fecha antes do início da captura.
 
@@ -179,6 +182,10 @@ O TelaRec usa SemVer. Tags de CI devem ter o formato `MAJOR.MINOR.PATCH` (por ex
 | schemas persistidos | settings, seleção de presets, agendamentos e journal |
 
 Documentos persistidos antigos são migrados de modo compatível; `settings.json` mantém backup antes da substituição. Um schema criado por versão mais nova é preservado, e o usuário deve restaurar o backup com uma versão compatível. O canal oficial continua sendo o ZIP portátil; a decisão sobre MSI, MSIX, instalador e atualização automática está registrada no [ADR de canal e atualização](docs/adr/0001-canal-portatil-e-atualizacao.md).
+
+## Operação e contribuição
+
+Os diretórios de dados, recovery de arquivos parciais, coleta segura de diagnósticos e o roteiro de release estão em [Operação e suporte](docs/operacao.md). As fronteiras App/Core/Infrastructure, o pipeline e suas responsabilidades estão em [Arquitetura](docs/arquitetura.md). A decisão de higiene de build, codec, recovery e CI está no [ADR 0002](docs/adr/0002-higiene-build-pipeline-e-recuperacao.md).
 
 ## Validação manual
 

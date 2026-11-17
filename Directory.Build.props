@@ -19,6 +19,9 @@
     <SourceRevisionId Condition="'$(SourceRevisionId)' == ''">local</SourceRevisionId>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)+$(SourceRevisionId)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Estabilidade de build sem converter avisos históricos em falhas. -->
+    <Deterministic>true</Deterministic>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <ItemGroup>

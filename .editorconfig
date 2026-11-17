@@ -1,0 +1,24 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+[*.{csproj,props,targets,resx,xaml}]
+indent_style = space
+indent_size = 2
+
+[*.{md,ps1}]
+indent_style = space
+indent_size = 2
+
+# A adoção é incremental: estilo aparece no editor, mas não quebra builds legados.
+[*.cs]
+dotnet_analyzer_diagnostic.severity = suggestion
