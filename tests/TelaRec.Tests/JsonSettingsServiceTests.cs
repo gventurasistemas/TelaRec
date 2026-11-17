@@ -111,6 +111,48 @@ public sealed class JsonSettingsServiceTests
     }
 
     [Fact]
+    public async Task Legacy_settings_are_migrated_and_original_is_preserved_as_backup()
+    {
+        var directory = NewDirectory();
+        var path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, "{ \"FramesPerSecond\": 50, \"SelectedPreset\": \"light-720p\" }");
+            var diagnostics = new RecordingDiagnosticsService();
+
+            var settings = await new JsonSettingsService(NullLogger<JsonSettingsService>.Instance, diagnostics, path).LoadAsync();
+
+            Assert.Equal(50, settings.FramesPerSecond);
+            Assert.Equal(PersistenceSchemas.Settings, settings.SchemaVersion);
+            Assert.Equal(PersistenceSchemas.Presets, settings.PresetSchemaVersion);
+            Assert.True(File.Exists(path + ".bak"));
+            Assert.DoesNotContain("SchemaVersion", await File.ReadAllTextAsync(path + ".bak"));
+            Assert.Contains(diagnostics.Current, item => item.Code == "settings.migrated");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Newer_settings_schema_is_preserved_and_compatible_backup_is_used()
+    {
+        var directory = NewDirectory();
+        var path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, "{ \"SchemaVersion\": 99, \"FramesPerSecond\": 1 }");
+            await File.WriteAllTextAsync(path + ".bak", "{ \"FramesPerSecond\": 48 }");
+            var diagnostics = new RecordingDiagnosticsService();
+
+            var settings = await new JsonSettingsService(NullLogger<JsonSettingsService>.Instance, diagnostics, path).LoadAsync();
+
+            Assert.Equal(48, settings.FramesPerSecond);
+            Assert.Contains(diagnostics.Current, item => item.Code == "settings.schema_unsupported");
+            Assert.Contains("\"SchemaVersion\": 99", await File.ReadAllTextAsync(path));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Failed_save_does_not_corrupt_existing_settings()
     {
         var directory = NewDirectory();

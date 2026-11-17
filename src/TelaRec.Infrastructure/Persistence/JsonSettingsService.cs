@@ -18,6 +18,8 @@ public sealed class JsonSettingsService : ISettingsService
     private readonly IRecordingDiagnostics? _diagnostics;
     private readonly string _settingsPath;
     private readonly string _backupPath;
+    private sealed record LoadedSettings(TelaRecSettings Settings, bool Migrated);
+    private sealed class UnsupportedSettingsSchemaException(string message) : Exception(message);
 
     public JsonSettingsService(ILogger<JsonSettingsService> logger, IRecordingDiagnostics? diagnostics = null, string? settingsPath = null)
     {
@@ -34,20 +36,42 @@ public sealed class JsonSettingsService : ISettingsService
     {
         if (!File.Exists(_settingsPath)) return new TelaRecSettings();
 
-        var settings = await TryLoadAsync(_settingsPath, cancellationToken).ConfigureAwait(false);
-        if (settings is not null) return settings;
+        LoadedSettings? settings;
+        try { settings = await TryLoadAsync(_settingsPath, cancellationToken).ConfigureAwait(false); }
+        catch (UnsupportedSettingsSchemaException exception)
+        {
+            _logger.LogWarning(exception, "Schema de configurações não suportado em {SettingsPath}", _settingsPath);
+            _diagnostics?.Report(DiagnosticSeverity.Warning, "settings.schema_unsupported", "As configurações foram criadas por uma versão mais nova e foram preservadas. Tentando o backup compatível.");
+            settings = null;
+        }
+        if (settings is not null)
+        {
+            if (settings.Migrated)
+            {
+                await SaveAsync(settings.Settings, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Configurações migradas para schema {SchemaVersion}", PersistenceSchemas.Settings);
+                _diagnostics?.Report(DiagnosticSeverity.Information, "settings.migrated", $"Configurações migradas para o schema {PersistenceSchemas.Settings}.");
+            }
+            return settings.Settings;
+        }
 
         _logger.LogWarning("Configurações inválidas em {SettingsPath}; tentando o backup", _settingsPath);
         _diagnostics?.Report(DiagnosticSeverity.Warning, "settings.load", "O arquivo de configurações estava inválido. Tentando restaurar o backup.");
 
         if (File.Exists(_backupPath))
         {
-            var restored = await TryLoadAsync(_backupPath, cancellationToken).ConfigureAwait(false);
+            LoadedSettings? restored;
+            try { restored = await TryLoadAsync(_backupPath, cancellationToken).ConfigureAwait(false); }
+            catch (UnsupportedSettingsSchemaException exception)
+            {
+                _logger.LogWarning(exception, "Schema do backup de configurações não suportado em {BackupPath}", _backupPath);
+                restored = null;
+            }
             if (restored is not null)
             {
                 _logger.LogInformation("Configurações restauradas do backup {BackupPath}", _backupPath);
                 _diagnostics?.Report(DiagnosticSeverity.Information, "settings.recovery", "Configurações restauradas a partir do backup.");
-                return restored;
+                return restored.Settings;
             }
         }
 
@@ -92,14 +116,31 @@ public sealed class JsonSettingsService : ISettingsService
         }
     }
 
-    private async Task<TelaRecSettings?> TryLoadAsync(string path, CancellationToken cancellationToken)
+    private async Task<LoadedSettings?> TryLoadAsync(string path, CancellationToken cancellationToken)
     {
         try
         {
             await using var stream = File.OpenRead(path);
-            return await JsonSerializer.DeserializeAsync<TelaRecSettings>(stream, SerializerOptions, cancellationToken).ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var settings = document.RootElement.Deserialize<TelaRecSettings>(SerializerOptions);
+            if (settings is null) return null;
+
+            var persistedSchema = document.RootElement.TryGetProperty(nameof(TelaRecSettings.SchemaVersion), out var schemaElement) && schemaElement.TryGetInt32(out var schema)
+                ? schema
+                : 0;
+            if (persistedSchema > PersistenceSchemas.Settings)
+                throw new UnsupportedSettingsSchemaException($"Schema de configurações {persistedSchema} é mais novo que o suportado ({PersistenceSchemas.Settings}). Restaure o backup com uma versão compatível do TelaRec.");
+
+            var migrated = persistedSchema < PersistenceSchemas.Settings || settings.PresetSchemaVersion < PersistenceSchemas.Presets;
+            settings.SchemaVersion = PersistenceSchemas.Settings;
+            settings.PresetSchemaVersion = PersistenceSchemas.Presets;
+            return new LoadedSettings(settings, migrated);
         }
         catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (UnsupportedSettingsSchemaException)
         {
             throw;
         }

@@ -167,6 +167,19 @@ O script limpa exclusivamente sua própria pasta versionada sob `artifacts\porta
 
 Checklist da máquina limpa: extraia o ZIP em um caminho com espaços sem privilégios administrativos; confirme que não há SDK/runtime .NET instalado; abra `TelaRec.App.Wpf.exe`; configure uma pasta de saída gravável; grave e reproduza um clipe H.264; feche e abra novamente. Repita para áudio e HEVC quando suportados pelo driver.
 
+## Versão, compatibilidade e atualização
+
+O TelaRec usa SemVer. Tags de CI devem ter o formato `MAJOR.MINOR.PATCH` (por exemplo, `1.2.0`); builds locais recebem `-dev.local`, e o pacote portátil usa também o hash curto do commit. A aba **Sobre**, o diagnóstico `release.identity`, o log de startup, as propriedades do executável e o nome do ZIP exibem a mesma versão informacional. `FileVersion` e `AssemblyVersion` permanecem numéricos por exigência do Windows.
+
+| Fonte | Consumidores |
+| --- | --- |
+| `Directory.Build.props` | metadados Product/Company/Copyright e assemblies |
+| tag CI ou hash Git local | `Version`, `InformationalVersion`, `RELEASE.json` e nome do ZIP |
+| `ReleaseIdentity` | aba Sobre, log e diagnóstico sem caminhos ou dados pessoais |
+| schemas persistidos | settings, seleção de presets, agendamentos e journal |
+
+Documentos persistidos antigos são migrados de modo compatível; `settings.json` mantém backup antes da substituição. Um schema criado por versão mais nova é preservado, e o usuário deve restaurar o backup com uma versão compatível. O canal oficial continua sendo o ZIP portátil; a decisão sobre MSI, MSIX, instalador e atualização automática está registrada no [ADR de canal e atualização](docs/adr/0001-canal-portatil-e-atualizacao.md).
+
 ## Validação manual
 
 ```powershell

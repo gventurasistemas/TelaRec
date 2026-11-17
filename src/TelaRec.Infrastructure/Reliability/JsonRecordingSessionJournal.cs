@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using TelaRec.Core.Configuration;
 using TelaRec.Core.Reliability;
 using TelaRec.Core.Recording;
 
@@ -83,9 +84,7 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                RecordingJournalEntry? entry;
-                await using (var stream = File.OpenRead(path))
-                    entry = await JsonSerializer.DeserializeAsync<RecordingJournalEntry>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+                var entry = await ReadEntryAsync(path, cancellationToken).ConfigureAwait(false);
                 if (entry is not null && IsOwnedTemporary(entry))
                 {
                     foreach (var temporaryPath in OwnedTemporaryPaths(entry))
@@ -129,8 +128,21 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
     {
         var path = JournalPath(id);
         if (!File.Exists(path)) return null;
+        return await ReadEntryAsync(path, token).ConfigureAwait(false);
+    }
+
+    private static async Task<RecordingJournalEntry?> ReadEntryAsync(string path, CancellationToken token)
+    {
         await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<RecordingJournalEntry>(stream, JsonOptions, token).ConfigureAwait(false);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: token).ConfigureAwait(false);
+        var entry = document.RootElement.Deserialize<RecordingJournalEntry>(JsonOptions);
+        if (entry is null) return null;
+        var schema = document.RootElement.TryGetProperty(nameof(RecordingJournalEntry.SchemaVersion), out var element) && element.TryGetInt32(out var persisted)
+            ? persisted
+            : 0;
+        if (schema > PersistenceSchemas.Journal)
+            throw new InvalidDataException($"Schema de journal {schema} não é suportado.");
+        return entry with { SchemaVersion = PersistenceSchemas.Journal };
     }
     private string JournalPath(Guid id) => Path.Combine(_directory, $"{id:N}.json");
     private SemaphoreSlim GateFor(Guid sessionId) => _sessionGates.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));

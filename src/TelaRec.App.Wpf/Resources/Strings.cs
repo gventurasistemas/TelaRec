@@ -18,6 +18,9 @@ public static class Strings
     public static string Settings => Get(nameof(Settings));
     public static string Schedules => Get(nameof(Schedules));
     public static string Diagnostics => Get(nameof(Diagnostics));
+    public static string About => Get(nameof(About));
+    public static string AboutVersion => Get(nameof(AboutVersion));
+    public static string AboutPortable => Get(nameof(AboutPortable));
     public static string Start => Get(nameof(Start));
     public static string Pause => Get(nameof(Pause));
     public static string Resume => Get(nameof(Resume));

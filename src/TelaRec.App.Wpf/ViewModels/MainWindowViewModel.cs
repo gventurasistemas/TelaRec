@@ -40,6 +40,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     private readonly IMicrophoneCaptureService? _microphoneCapture;
     private readonly IVideoEncoderCapabilitiesService? _encoderCapabilitiesService;
     private readonly IRecordingTelemetrySource? _recordingTelemetry;
+    private readonly ReleaseIdentity _releaseIdentity;
     private readonly Dictionary<Guid, ScheduledRecording> _scheduleRules = new();
     private readonly Dictionary<string, List<string>> _errors = new();
     private TelaRecSettings _settings = new();
@@ -70,7 +71,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         ILogger<MainWindowViewModel> logger,
         IMicrophoneCaptureService? microphoneCapture = null,
         IVideoEncoderCapabilitiesService? encoderCapabilitiesService = null,
-        IRecordingTelemetrySource? recordingTelemetry = null)
+        IRecordingTelemetrySource? recordingTelemetry = null,
+        ReleaseIdentity? releaseIdentity = null)
     {
         _settingsService = settingsService;
         _recordingService = recordingService;
@@ -82,6 +84,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _microphoneCapture = microphoneCapture;
         _encoderCapabilitiesService = encoderCapabilitiesService;
         _recordingTelemetry = recordingTelemetry;
+        _releaseIdentity = releaseIdentity ?? ReleaseIdentity.FromAssembly(typeof(MainWindowViewModel).Assembly);
 
         PresetOptions = RecordingPresets.All
             .Select(preset => new LocalizedOption(preset.Id, Strings.Get(preset.ResourceKey)))
@@ -163,6 +166,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public ObservableCollection<AudioInputDevice> MicrophoneDevices { get; }
     public bool HasDiagnostics => Diagnostics.Count > 0;
     public bool HasSchedules => Schedules.Count > 0;
+    public string AboutVersion => _releaseIdentity.DisplayVersion;
+    public string AboutProduct => _releaseIdentity.Product;
 
     public IReadOnlyList<LocalizedOption> PresetOptions { get; }
     public IReadOnlyList<LocalizedOption> CaptureModeOptions { get; }

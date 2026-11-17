@@ -1,8 +1,33 @@
 <Project>
   <PropertyGroup>
-    <!-- Versão da distribuição portátil; o script de publicação falha se ela estiver ausente. -->
-    <Version>1.0.0</Version>
+    <!-- Fonte única da identidade de release. Tags de CI devem ser SemVer sem prefixo, por exemplo 1.2.0. -->
+    <TelaRecReleaseVersion>1.0.0</TelaRecReleaseVersion>
+    <Company>Gelson Ventura Gomes</Company>
+    <Product>TelaRec</Product>
+    <Copyright>Copyright © 2026 Gelson Ventura Gomes</Copyright>
+
+    <VersionPrefix Condition="'$(VersionPrefix)' == '' and '$(GITHUB_REF_TYPE)' == 'tag'">$(GITHUB_REF_NAME)</VersionPrefix>
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(TelaRecReleaseVersion)</VersionPrefix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == '' and '$(GITHUB_REF_TYPE)' != 'tag'">dev.local</VersionSuffix>
+    <Version Condition="'$(VersionSuffix)' == ''">$(VersionPrefix)</Version>
+    <Version Condition="'$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</Version>
+
+    <!-- Windows exige quatro componentes numéricos para FileVersion/AssemblyVersion. -->
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
+    <SourceRevisionId Condition="'$(SourceRevisionId)' == '' and '$(GITHUB_SHA)' != ''">$(GITHUB_SHA)</SourceRevisionId>
+    <SourceRevisionId Condition="'$(SourceRevisionId)' == ''">local</SourceRevisionId>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)+$(SourceRevisionId)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="SourceRevisionId" Value="$(SourceRevisionId)" />
+    <AssemblyMetadata Include="ReleaseChannel" Value="portable" />
+  </ItemGroup>
+
+  <Target Name="ValidateTelaRecReleaseIdentity" BeforeTargets="GenerateAssemblyInfo">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'))"
+           Text="A versão '$(Version)' não é SemVer válida. Defina uma tag SemVer no CI ou VersionPrefix/VersionSuffix explicitamente." />
+  </Target>
 </Project>

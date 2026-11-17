@@ -70,6 +70,75 @@ public sealed class ReliabilityTests
     }
 
     [Fact]
+    public async Task Legacy_schedule_array_is_migrated_to_versioned_document()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecScheduleTests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "schedules.json");
+        Directory.CreateDirectory(root);
+        try
+        {
+            await File.WriteAllTextAsync(path, "[]");
+            var store = new JsonScheduledRecordingStore(NullLogger<JsonScheduledRecordingStore>.Instance, path);
+
+            var schedules = await store.LoadAsync();
+
+            Assert.Empty(schedules);
+            var migrated = await File.ReadAllTextAsync(path);
+            Assert.Contains("\"SchemaVersion\": 1", migrated);
+            Assert.Contains("\"Schedules\": []", migrated);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task Journal_writes_schema_version()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
+        var sessions = Path.Combine(root, "sessions");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, sessions);
+            await journal.CreateAsync(new RecordingJournalEntry(Guid.NewGuid(), Path.Combine(root, ".recording.partial.mp4"), Path.Combine(root, "recording.mp4"), DateTimeOffset.UtcNow, RecordingState.Recording, null));
+
+            var journalFile = Assert.Single(Directory.GetFiles(sessions, "*.json"));
+            Assert.Contains("\"SchemaVersion\": 1", await File.ReadAllTextAsync(journalFile));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task Legacy_journal_is_migrated_when_its_state_is_updated()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
+        var sessions = Path.Combine(root, "sessions");
+        Directory.CreateDirectory(sessions);
+        var sessionId = Guid.NewGuid();
+        try
+        {
+            var legacy = new
+            {
+                SessionId = sessionId,
+                TemporaryPath = Path.Combine(root, ".recording.partial.mp4"),
+                OutputPath = Path.Combine(root, "recording.mp4"),
+                StartedAt = DateTimeOffset.UtcNow,
+                State = RecordingState.Recording,
+                Error = (string?)null
+            };
+            var path = Path.Combine(sessions, $"{sessionId:N}.json");
+            await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(legacy));
+            var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, sessions);
+
+            await journal.UpdateAsync(sessionId, RecordingState.Stopping);
+
+            var migrated = await File.ReadAllTextAsync(path);
+            Assert.Contains("\"SchemaVersion\": 1", migrated);
+            Assert.Contains("\"State\": 4", migrated);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task Journal_removes_only_its_incomplete_write_artifacts()
     {
         var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));

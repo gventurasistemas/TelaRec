@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TelaRec.App.Wpf.Infrastructure;
 using TelaRec.App.Wpf.Resources;
 using TelaRec.App.Wpf.ViewModels;
 using TelaRec.Core.Contracts;
@@ -56,11 +57,14 @@ public partial class App : Application
             services.AddSingleton<IRecordingAvailabilityProbe, WindowsRecordingAvailabilityProbe>();
             services.AddSingleton<IRecordingScheduler, RecordingScheduler>();
             services.AddSingleton<IScheduledRecordingStore, JsonScheduledRecordingStore>();
+            services.AddSingleton(ReleaseIdentity.FromAssembly(typeof(App).Assembly));
             services.AddSingleton<MainWindowViewModel>();
             services.AddSingleton<MainWindow>();
             _serviceProvider = services.BuildServiceProvider();
             _logger = _serviceProvider.GetRequiredService<ILogger<App>>();
-            _logger.LogInformation("TelaRec iniciado. Versão {Version}", typeof(App).Assembly.GetName().Version);
+            var release = _serviceProvider.GetRequiredService<ReleaseIdentity>();
+            _logger.LogInformation("TelaRec iniciado. Versão {Version}; commit {Commit}", release.InformationalVersion, release.Commit);
+            _serviceProvider.GetRequiredService<IRecordingDiagnostics>().Report(DiagnosticSeverity.Information, "release.identity", $"{release.Product} {release.DisplayVersion}");
 
             var window = _serviceProvider.GetRequiredService<MainWindow>();
             window.Show();

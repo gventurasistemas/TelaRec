@@ -34,10 +34,14 @@ function Remove-ValidatedDirectory {
 }
 
 function Get-RequiredVersion {
+    param([Parameter(Mandatory)][string]$Commit)
+
     if (-not (Test-Path -LiteralPath $propsPath)) { throw "Versão ausente: $propsPath não existe." }
     [xml]$props = Get-Content -LiteralPath $propsPath
-    $version = [string]$props.Project.PropertyGroup.Version
-    if ([string]::IsNullOrWhiteSpace($version)) { throw 'Versão ausente em Directory.Build.props.' }
+    $baseVersion = [string]$props.Project.PropertyGroup.TelaRecReleaseVersion
+    if ([string]::IsNullOrWhiteSpace($baseVersion)) { throw 'Versão-base ausente em Directory.Build.props.' }
+    $tag = [string](& git -C $repoRoot describe --exact-match --tags HEAD 2>$null)
+    $version = if ([string]::IsNullOrWhiteSpace($tag)) { "$baseVersion-dev.$($Commit.Substring(0, 12))" } else { $tag.Trim() }
     if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') { throw "Versão inválida para distribuição: '$version'." }
     return $version
 }
@@ -156,7 +160,9 @@ function Test-PortableStartup {
     }
 }
 
-$version = Get-RequiredVersion
+$commit = [string](& git -C $repoRoot rev-parse HEAD)
+$commit = $commit.Trim()
+$version = Get-RequiredVersion -Commit $commit
 $packageName = "TelaRec-$version-win-x64"
 $runRoot = Assert-SafeChildPath -Path (Join-Path $artifactsRoot $packageName) -Parent $artifactsRoot
 $publishDirectory = Join-Path $runRoot 'publish'
@@ -171,12 +177,10 @@ Remove-ValidatedDirectory -Path $runRoot -Parent $artifactsRoot
 New-Item -ItemType Directory -Force -Path $publishDirectory | Out-Null
 
 Invoke-Dotnet -Arguments @('test', $solutionPath, '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'tests.log')
-Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$publishDirectory", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish.log')
+Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$publishDirectory", "-p:Version=$version", "-p:SourceRevisionId=$commit", "-p:InformationalVersion=$version+$commit", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish.log')
 
 Add-DistributionDocuments -PublishDirectory $publishDirectory
 Test-PublishContents -PublishDirectory $publishDirectory -Version $version
-$commit = [string](& git -C $repoRoot rev-parse HEAD)
-$commit = $commit.Trim()
 $epochText = [string](& git -C $repoRoot show -s --format=%ct HEAD)
 $epoch = [long]$epochText.Trim()
 $timestamp = [DateTimeOffset]::FromUnixTimeSeconds($epoch)
@@ -197,7 +201,7 @@ Test-Manifest -PublishDirectory $publishDirectory -ManifestPath $manifestPath
 
 # Uma segunda publicação no mesmo commit deve produzir exatamente o mesmo manifesto.
 New-Item -ItemType Directory -Force -Path $reproduciblePublishDirectory | Out-Null
-Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$reproduciblePublishDirectory", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish-reproducibility.log')
+Invoke-Dotnet -Arguments @('publish', $projectPath, '-c', 'Release', '-r', 'win-x64', '-p:PublishProfile=PortableWinX64', "-p:PublishDir=$reproduciblePublishDirectory", "-p:Version=$version", "-p:SourceRevisionId=$commit", "-p:InformationalVersion=$version+$commit", '-p:ContinuousIntegrationBuild=true', '-p:DebugSymbols=false', '-p:DebugType=none', '--verbosity', 'minimal') -LogPath (Join-Path $runRoot 'publish-reproducibility.log')
 Add-DistributionDocuments -PublishDirectory $reproduciblePublishDirectory
 Test-PublishContents -PublishDirectory $reproduciblePublishDirectory -Version $version
 Copy-Item -LiteralPath $releasePath -Destination (Join-Path $reproduciblePublishDirectory 'RELEASE.json')

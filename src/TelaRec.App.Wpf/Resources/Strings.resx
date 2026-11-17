@@ -6,6 +6,9 @@
   <data name="Settings"><value>Configurações</value></data>
   <data name="Schedules"><value>Agendamentos</value></data>
   <data name="Diagnostics"><value>Diagnósticos</value></data>
+  <data name="About"><value>Sobre</value></data>
+  <data name="AboutVersion"><value>Versão informacional e revisão exibidas sem dados pessoais ou caminhos da máquina.</value></data>
+  <data name="AboutPortable"><value>Canal de distribuição: ZIP portátil verificado por manifesto e SHA-256.</value></data>
   <data name="Start"><value>Gravar</value></data>
   <data name="Pause"><value>Pausar</value></data>
   <data name="Resume"><value>Retomar</value></data>

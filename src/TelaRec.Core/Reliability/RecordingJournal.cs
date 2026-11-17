@@ -8,7 +8,10 @@ public sealed record RecordingJournalEntry(
     string OutputPath,
     DateTimeOffset StartedAt,
     RecordingState State,
-    string? Error);
+    string? Error)
+{
+    public int SchemaVersion { get; init; } = Configuration.PersistenceSchemas.Journal;
+}
 
 public sealed record RecoveryResult(int SessionsFound, int TemporaryFilesRemoved, IReadOnlyList<string> Diagnostics);
 

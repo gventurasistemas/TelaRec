@@ -4,6 +4,11 @@ namespace TelaRec.Core.Configuration;
 
 public sealed class TelaRecSettings
 {
+    /// <summary>Versão do documento settings.json; ausente em instalações anteriores à P23.</summary>
+    public int SchemaVersion { get; set; } = PersistenceSchemas.Settings;
+    /// <summary>Versão dos IDs de preset persistidos em <see cref="SelectedPreset"/>.</summary>
+    public int PresetSchemaVersion { get; set; } = PersistenceSchemas.Presets;
+
     public string OutputDirectory { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
         "TelaRec");

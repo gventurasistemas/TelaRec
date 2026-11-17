@@ -699,6 +699,24 @@
                 </Grid>
             </TabItem>
 
+            <!-- ===================== Sobre ===================== -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE946;" Style="{StaticResource IconGlyph}" />
+                        <TextBlock Text="{resources:Loc Key=About}" />
+                    </StackPanel>
+                </TabItem.Header>
+                <Border Style="{StaticResource SectionCard}" Margin="0,4,0,0">
+                    <StackPanel>
+                        <TextBlock Text="{Binding AboutProduct}" Style="{StaticResource SectionHeader}" />
+                        <TextBlock Text="{Binding AboutVersion}" FontFamily="Consolas" Foreground="#DDE3ED" Margin="0,8,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="{resources:Loc Key=AboutVersion}" Style="{StaticResource HintText}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="{resources:Loc Key=AboutPortable}" Style="{StaticResource HintText}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </TabItem>
+
             <!-- ===================== Diagnósticos ===================== -->
             <TabItem>
                 <TabItem.Header>

@@ -6,6 +6,9 @@
   <data name="Settings"><value>Settings</value></data>
   <data name="Schedules"><value>Schedules</value></data>
   <data name="Diagnostics"><value>Diagnostics</value></data>
+  <data name="About"><value>About</value></data>
+  <data name="AboutVersion"><value>Informational version and revision are shown without personal data or machine paths.</value></data>
+  <data name="AboutPortable"><value>Distribution channel: portable ZIP verified by manifest and SHA-256.</value></data>
   <data name="Start"><value>Record</value></data>
   <data name="Pause"><value>Pause</value></data>
   <data name="Resume"><value>Resume</value></data>

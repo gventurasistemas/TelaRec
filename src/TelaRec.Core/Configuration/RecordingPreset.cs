@@ -14,6 +14,8 @@ public sealed record RecordingPreset(
 
 public static class RecordingPresets
 {
+    public const int SchemaVersion = PersistenceSchemas.Presets;
+
     public static IReadOnlyList<RecordingPreset> All { get; } = new[]
     {
         new RecordingPreset("tutorial-1080p", "PresetTutorial1080p", 1920, 1080, 30, "Alta"),
