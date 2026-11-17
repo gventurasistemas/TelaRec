@@ -40,7 +40,7 @@ function Get-RequiredVersion {
     [xml]$props = Get-Content -LiteralPath $propsPath
     $baseVersion = [string]$props.Project.PropertyGroup.TelaRecReleaseVersion
     if ([string]::IsNullOrWhiteSpace($baseVersion)) { throw 'Versão-base ausente em Directory.Build.props.' }
-    $tag = [string](& git -C $repoRoot describe --exact-match --tags HEAD 2>$null)
+    $tag = [string]((& git -C $repoRoot tag --points-at HEAD | Select-Object -First 1))
     $version = if ([string]::IsNullOrWhiteSpace($tag)) { "$baseVersion-dev.$($Commit.Substring(0, 12))" } else { $tag.Trim() }
     if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') { throw "Versão inválida para distribuição: '$version'." }
     return $version
