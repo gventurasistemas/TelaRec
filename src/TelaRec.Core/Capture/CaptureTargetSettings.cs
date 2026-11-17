@@ -27,6 +27,7 @@ public sealed class CaptureTargetSettings
         CaptureTarget.Region region => new CaptureTargetSettings
         {
             Kind = "region",
+            DisplayIndex = region.MonitorIndex,
             X = region.X,
             Y = region.Y,
             Width = region.Width,
@@ -40,7 +41,7 @@ public sealed class CaptureTargetSettings
         target = (Kind ?? string.Empty).ToLowerInvariant() switch
         {
             "display" when DisplayIndex >= 0 => new CaptureTarget.Display(DisplayIndex),
-            "region" when Width > 0 && Height > 0 => new CaptureTarget.Region(X, Y, Width, Height),
+            "region" when Width > 0 && Height > 0 && DisplayIndex >= 0 => new CaptureTarget.Region(X, Y, Width, Height, DisplayIndex),
             _ => null
         };
         return target is not null;

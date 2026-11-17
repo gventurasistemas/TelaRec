@@ -169,7 +169,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public IReadOnlyList<LocalizedOption> QualityOptions { get; }
     public IReadOnlyList<LocalizedOption> AudioSourceOptions { get; }
     public IReadOnlyList<LocalizedOption> EncoderAccelerationOptions { get; }
-    public IReadOnlyList<LocalizedOption> VideoCodecOptions => EncoderCapabilities.HevcSupported
+    public IReadOnlyList<LocalizedOption> VideoCodecOptions => EncoderCapabilities.HevcSupported || _settings.VideoCodec == VideoCodec.Hevc
         ? [new(nameof(VideoCodec.H264), "H.264"), new(nameof(VideoCodec.Hevc), "HEVC")]
         : [new(nameof(VideoCodec.H264), "H.264")];
     public IReadOnlyList<LocalizedOption> PositionOptions { get; }
@@ -253,6 +253,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _selectedTarget = target;
         if (target is CaptureTarget.Display display)
             _selectedDisplayIndex = display.DisplayIndex;
+        else if (target is CaptureTarget.Region region)
+            _selectedDisplayIndex = region.MonitorIndex;
         PersistSelectedTarget();
         OnPropertyChanged(nameof(SelectedDisplayIndex));
         StatusMessage = target switch
@@ -276,6 +278,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
                 _ => CaptureModeFullScreen
             };
             if (target is CaptureTarget.Display display) _selectedDisplayIndex = display.DisplayIndex;
+            else if (target is CaptureTarget.Region region) _selectedDisplayIndex = region.MonitorIndex;
             OnPropertyChanged(nameof(CaptureMode));
             OnPropertyChanged(nameof(SelectedDisplayIndex));
             return;
@@ -752,7 +755,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         OnPropertyChanged(nameof(OutputFormat));
         if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
         {
-            _settings.VideoCodec = VideoCodec.H264;
             _diagnostics.Report(DiagnosticSeverity.Warning, "encoder.hevc_unavailable", Strings.HevcUnavailable);
         }
         OnPropertyChanged(nameof(VideoCodecOptions));
@@ -855,6 +857,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _logger.LogWarning("Problema de atalho global: {Message}", message);
     }
 
+    public void ReportCaptureTargetUnavailable(string message)
+    {
+        StatusMessage = message;
+        DiagnosticsText = message;
+        _diagnostics.Report(DiagnosticSeverity.Warning, "capture.target_unavailable", message);
+        _logger.LogWarning("Alvo de captura indisponível: {Message}", message);
+    }
+
     private void SyncSettingsFromView()
     {
         _settings.OutputDirectory = OutputDirectory.Trim();
@@ -873,6 +883,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         {
             SyncSettingsFromView();
             if (!EnsureSettingsValid()) return;
+            if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
+            {
+                StatusMessage = Strings.HevcUnavailable;
+                _diagnostics.Report(DiagnosticSeverity.Error, "encoder.hevc_unavailable", Strings.HevcUnavailable);
+                return;
+            }
             if (!await SaveSettingsAsync()) return;
 
             var availability = _availability.Check();
@@ -1015,17 +1031,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         try
         {
             await _scheduler.CancelAsync(scheduleId);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Falha ao cancelar agendamento {ScheduleId}", scheduleId);
-        }
-        finally
-        {
             _scheduleRules.Remove(scheduleId);
             var item = Schedules.FirstOrDefault(schedule => schedule.Id == scheduleId);
             if (item is not null) Schedules.Remove(item);
             StatusMessage = Strings.ScheduleCancelled;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Falha ao cancelar agendamento {ScheduleId}", scheduleId);
+            StatusMessage = string.Format(Strings.ScheduleCancelFailed, exception.Message);
+            _diagnostics.Report(DiagnosticSeverity.Error, "schedule.cancel_failed", StatusMessage);
         }
     }
 

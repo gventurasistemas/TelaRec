@@ -50,8 +50,13 @@ public sealed class VideoFrameComposer : IVideoFrameComposer, IDisposable
     {
         lock (_sync)
         {
+            var hasWatermark = _watermark is not null;
+            var hasWebcam = _settings.Webcam.Enabled && _webcam is not null;
+            var hasClickEffects = HasActiveClickEffects(frame.Timestamp);
+            if (!hasWatermark && !hasWebcam && !hasClickEffects) return frame;
+
             var output = frame.Pixels.ToArray();
-            if (_watermark is not null) Blend(output, frame.Width, frame.Height, frame.Stride, _watermark, _watermarkWidth, _watermarkHeight, _settings.Watermark.Position, _settings.Watermark.Opacity, _settings.Watermark.Scale);
+            if (hasWatermark) Blend(output, frame.Width, frame.Height, frame.Stride, _watermark!, _watermarkWidth, _watermarkHeight, _settings.Watermark.Position, _settings.Watermark.Opacity, _settings.Watermark.Scale);
             if (_settings.Webcam.Enabled && _webcam is { } webcam)
                 Blend(output, frame.Width, frame.Height, frame.Stride, webcam.Pixels, webcam.Width, webcam.Height, _settings.Webcam.Position, _settings.Webcam.Opacity, _settings.Webcam.Scale);
             if (_clickSettings.Enabled && _clickBounds is { } bounds)
@@ -59,10 +64,16 @@ public sealed class VideoFrameComposer : IVideoFrameComposer, IDisposable
             return frame with { Pixels = output };
         }
     }
+    private bool HasActiveClickEffects(TimeSpan timestamp)
+    {
+        if (!_clickSettings.Enabled || _clickBounds is not { IsValid: true }) return false;
+        var duration = TimeSpan.FromSeconds(Math.Clamp(_clickSettings.DurationSeconds, 0.05, 5.0));
+        _clicks.RemoveAll(click => timestamp - click.Timestamp > duration);
+        return _clicks.Any(click => timestamp >= click.Timestamp && timestamp - click.Timestamp <= duration);
+    }
     private void RenderClickEffects(byte[] destination, int width, int height, int stride, TimeSpan timestamp, CaptureFrameBounds bounds)
     {
         var duration = TimeSpan.FromSeconds(Math.Clamp(_clickSettings.DurationSeconds, 0.05, 5.0));
-        _clicks.RemoveAll(click => timestamp - click.Timestamp > duration);
         if (_clicks.Count == 0) return;
 
         _clickSettings.TryGetColor(out var red, out var green, out var blue);

@@ -46,6 +46,7 @@
   <data name="RegionSelectionHint"><value>Arraste para selecionar; ajuste pelos cantos; Enter confirma; Esc cancela</value></data>
   <data name="ApplyRegion"><value>Usar região</value></data>
   <data name="SelectWindow"><value>Selecionar janela</value></data>
+  <data name="WindowNoLongerAvailable"><value>A janela selecionada não está mais disponível. Escolha outra janela.</value></data>
   <data name="UseWindow"><value>Usar janela</value></data>
   <data name="SelectRegion"><value>Selecionar região</value></data>
   <data name="Cursor"><value>Cursor</value></data>
@@ -53,6 +54,7 @@
   <data name="ClickEffects"><value>Efeitos de clique</value></data>
   <data name="EnableClickEffects"><value>Destacar cliques</value></data>
   <data name="Format"><value>Formato</value></data>
+  <data name="FormatDependencyHint"><value>MP4 usa componentes nativos do Windows. MKV, MOV e GIF exigem FFmpeg configurado e são verificados antes de gravar.</value></data>
   <data name="Resolution"><value>Resolução</value></data>
   <data name="Bitrate"><value>Bitrate (bps)</value></data>
   <data name="Codec"><value>Codec</value></data>
@@ -63,7 +65,7 @@
   <data name="EncoderHardwareActive"><value>GPU</value></data>
   <data name="EncoderSoftwareActive"><value>Software</value></data>
   <data name="PerformanceSummary"><value>Encoder: {0} • Quadros descartados: {1} • Codificação média: {2:F1} ms</value></data>
-  <data name="HevcUnavailable"><value>HEVC não está disponível neste Windows; H.264 foi selecionado.</value></data>
+  <data name="HevcUnavailable"><value>HEVC não está disponível neste Windows. Selecione H.264 para iniciar a gravação.</value></data>
   <data name="Quality"><value>Qualidade</value></data>
   <data name="QualityHint"><value>Ao mudar a qualidade, o bitrate sugerido é recalculado. Você ainda pode editá-lo manualmente.</value></data>
   <data name="QualityHigh"><value>Alta</value></data>
@@ -100,7 +102,10 @@
   <data name="ScheduleFormHint"><value>Escolha o início e a duração; o agendamento usa as configurações atuais.</value></data>
   <data name="SchedulesEmpty"><value>Nenhum agendamento nesta sessão.</value></data>
   <data name="ScheduledStatePending"><value>Pendente</value></data>
+  <data name="ScheduledStateStarting"><value>Iniciando</value></data>
   <data name="ScheduledStateRecording"><value>Gravando</value></data>
+  <data name="ScheduledStateCancelling"><value>Cancelando</value></data>
+  <data name="ScheduledStateCancelled"><value>Cancelado</value></data>
   <data name="ScheduledStateCompleted"><value>Concluído</value></data>
   <data name="ScheduledStateRejected"><value>Rejeitado</value></data>
   <data name="ScheduledStateFailed"><value>Falha</value></data>
@@ -118,6 +123,7 @@
   <data name="ScheduleCreateFailed"><value>Não foi possível agendar: {0}</value></data>
   <data name="ScheduleMissingTimes"><value>Informe um início no futuro e uma duração positiva.</value></data>
   <data name="ScheduleCancelled"><value>Agendamento cancelado.</value></data>
+  <data name="ScheduleCancelFailed"><value>Não foi possível cancelar o agendamento: {0}</value></data>
   <data name="DiagnosticsEmpty"><value>Nenhum diagnóstico registrado.</value></data>
   <data name="DiagnosticsHint"><value>Os últimos 20 eventos aparecem aqui e também no log em arquivo.</value></data>
   <data name="SeverityInformation"><value>Info</value></data>

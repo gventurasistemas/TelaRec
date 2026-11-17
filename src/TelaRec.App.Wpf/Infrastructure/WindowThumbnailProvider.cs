@@ -13,7 +13,8 @@ internal static class WindowThumbnailProvider
 {
     private const int ExtendedFrameBounds = 9;
     private const uint RenderFullContent = 2;
-    private const int MaximumCaptureDimension = 8192;
+    internal const int MaximumCaptureDimension = 2048;
+    internal const int MaximumCapturePixels = 2_000_000;
 
     public static ImageSource? Capture(nint handle, int thumbnailWidth, int thumbnailHeight)
     {
@@ -21,12 +22,14 @@ internal static class WindowThumbnailProvider
 
         var width = bounds.Right - bounds.Left;
         var height = bounds.Bottom - bounds.Top;
-        if (width <= 0 || height <= 0 || width > MaximumCaptureDimension || height > MaximumCaptureDimension)
+        if (width <= 0 || height <= 0)
             return null;
+
+        var captureSize = GetCaptureDimensions(width, height);
 
         try
         {
-            using var captured = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var captured = new Bitmap(captureSize.Width, captureSize.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var graphics = Graphics.FromImage(captured))
             {
                 graphics.Clear(Color.FromArgb(16, 19, 26));
@@ -41,7 +44,7 @@ internal static class WindowThumbnailProvider
                     graphics.ReleaseHdc(deviceContext);
                 }
 
-                if (!rendered && !IsIconic(handle))
+                if (!rendered && !IsIconic(handle) && captureSize.Width == width && captureSize.Height == height)
                 {
                     graphics.CopyFromScreen(
                         bounds.Left,
@@ -78,6 +81,22 @@ internal static class WindowThumbnailProvider
         {
             return null;
         }
+        catch (OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
+    internal static (int Width, int Height) GetCaptureDimensions(int sourceWidth, int sourceHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0) return (0, 0);
+        var scale = Math.Min(
+            1d,
+            Math.Min(MaximumCaptureDimension / (double)sourceWidth, MaximumCaptureDimension / (double)sourceHeight));
+        scale = Math.Min(scale, Math.Sqrt(MaximumCapturePixels / (double)(sourceWidth * (long)sourceHeight)));
+        return (
+            Math.Max(1, (int)Math.Floor(sourceWidth * scale)),
+            Math.Max(1, (int)Math.Floor(sourceHeight * scale)));
     }
 
     private static Bitmap ScaleToFit(Bitmap source, int width, int height)

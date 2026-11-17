@@ -37,10 +37,10 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
 
     public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
     {
-        var directory = Path.GetDirectoryName(request.OutputPath) ?? throw new ArgumentException("Caminho de saída inválido.");
-        Directory.CreateDirectory(directory);
         if (_started) throw new InvalidOperationException("Encoder já iniciado.");
         _profile = request.EffectiveProfile;
+        if (!_profile.IsValid)
+            throw new ArgumentException("Perfil de gravação inválido.", nameof(request));
         if (_profile.Container != RecordingContainer.Mp4 || _profile.VideoCodec is not (VideoCodec.H264 or VideoCodec.Hevc))
             throw new NotSupportedException("O encoder nativo aceita apenas MP4 com H.264 ou HEVC.");
         _fps = _profile.FramesPerSecond;
@@ -48,6 +48,9 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
         _includeAudio = request.EffectiveAudioMix.HasEnabledSource;
         var capabilities = _capabilitiesService.GetCapabilities();
         _usingHardwareEncoder = SelectHardwareEncoder(request.EncoderAcceleration, capabilities);
+        cancellationToken.ThrowIfCancellationRequested();
+        var directory = Path.GetDirectoryName(request.OutputPath) ?? throw new ArgumentException("Caminho de saída inválido.");
+        Directory.CreateDirectory(directory);
         MediaFactory.MFStartup();
         _mediaFoundationStarted = true;
         try
@@ -66,9 +69,9 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
         if (_profile.VideoCodec == VideoCodec.Hevc)
         {
             if (!capabilities.HevcSupported)
-                throw new NotSupportedException("HEVC não é suportado pelos encoders instalados neste Windows.");
+                throw new NotSupportedException("HEVC não está disponível neste Windows. Selecione H.264 para iniciar a gravação.");
             if (preference == VideoEncoderAcceleration.SoftwareOnly && !capabilities.HevcSoftwareSupported)
-                throw new NotSupportedException("HEVC por software não está disponível neste Windows.");
+                throw new NotSupportedException("HEVC por software não está disponível neste Windows. Use aceleração automática ou selecione H.264.");
             return preference != VideoEncoderAcceleration.SoftwareOnly && capabilities.HevcHardwareSupported;
         }
 
@@ -93,10 +96,11 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
         if (!_started || _writer is null) throw new InvalidOperationException("Encoder não iniciado.");
 
         if (_streamIndex < 0 && !Configure(frame)) throw new InvalidOperationException("Não foi possível configurar o encoder de vídeo.");
-        var nv12 = ConvertToNv12(frame);
+        using var nv12 = PooledNv12Buffer.Rent(frame.Width * frame.Height * 3 / 2);
+        ConvertToNv12(frame, nv12.Span);
         using var buffer = MediaFactory.MFCreateMemoryBuffer(nv12.Length);
         buffer.Lock(out var pointer, out _, out _);
-        try { Marshal.Copy(nv12, 0, pointer, nv12.Length); }
+        try { nv12.CopyTo(pointer); }
         finally { buffer.Unlock(); }
         buffer.CurrentLength = nv12.Length;
         using var sample = MediaFactory.MFCreateSample();
@@ -213,11 +217,12 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
     }
 
     private static ulong Pack(int high, int low) => ((ulong)(uint)high << 32) | (uint)low;
-    private static byte[] ConvertToNv12(VideoFrame frame)
+    internal static void ConvertToNv12(VideoFrame frame, Span<byte> result)
     {
         if ((frame.Width & 1) != 0 || (frame.Height & 1) != 0)
             throw new ArgumentException("O H.264 exige dimensões pares.");
-        var result = new byte[frame.Width * frame.Height * 3 / 2];
+        var requiredLength = frame.Width * frame.Height * 3 / 2;
+        if (result.Length < requiredLength) throw new ArgumentException("Buffer NV12 insuficiente.", nameof(result));
         var uvOffset = frame.Width * frame.Height;
         for (var y = 0; y < frame.Height; y += 2)
         for (var x = 0; x < frame.Width; x += 2)
@@ -236,6 +241,5 @@ public sealed class MediaFoundationVideoEncoderService : IVideoEncoderService, I
             result[uv] = (byte)Math.Clamp(u / 4, 0, 255);
             result[uv + 1] = (byte)Math.Clamp(v / 4, 0, 255);
         }
-        return result;
     }
 }

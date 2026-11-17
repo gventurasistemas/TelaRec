@@ -58,6 +58,7 @@ public static class Strings
     public static string RegionSelectionHint => Get(nameof(RegionSelectionHint));
     public static string ApplyRegion => Get(nameof(ApplyRegion));
     public static string SelectWindow => Get(nameof(SelectWindow));
+    public static string WindowNoLongerAvailable => Get(nameof(WindowNoLongerAvailable));
     public static string UseWindow => Get(nameof(UseWindow));
     public static string SelectRegion => Get(nameof(SelectRegion));
     public static string Cursor => Get(nameof(Cursor));
@@ -65,6 +66,7 @@ public static class Strings
     public static string ClickEffects => Get(nameof(ClickEffects));
     public static string EnableClickEffects => Get(nameof(EnableClickEffects));
     public static string Format => Get(nameof(Format));
+    public static string FormatDependencyHint => Get(nameof(FormatDependencyHint));
     public static string Resolution => Get(nameof(Resolution));
     public static string Bitrate => Get(nameof(Bitrate));
     public static string Codec => Get(nameof(Codec));
@@ -112,7 +114,10 @@ public static class Strings
     public static string ScheduleFormHint => Get(nameof(ScheduleFormHint));
     public static string SchedulesEmpty => Get(nameof(SchedulesEmpty));
     public static string ScheduledStatePending => Get(nameof(ScheduledStatePending));
+    public static string ScheduledStateStarting => Get(nameof(ScheduledStateStarting));
     public static string ScheduledStateRecording => Get(nameof(ScheduledStateRecording));
+    public static string ScheduledStateCancelling => Get(nameof(ScheduledStateCancelling));
+    public static string ScheduledStateCancelled => Get(nameof(ScheduledStateCancelled));
     public static string ScheduledStateCompleted => Get(nameof(ScheduledStateCompleted));
     public static string ScheduledStateRejected => Get(nameof(ScheduledStateRejected));
     public static string ScheduledStateFailed => Get(nameof(ScheduledStateFailed));
@@ -130,6 +135,7 @@ public static class Strings
     public static string ScheduleCreateFailed => Get(nameof(ScheduleCreateFailed));
     public static string ScheduleMissingTimes => Get(nameof(ScheduleMissingTimes));
     public static string ScheduleCancelled => Get(nameof(ScheduleCancelled));
+    public static string ScheduleCancelFailed => Get(nameof(ScheduleCancelFailed));
     public static string DiagnosticsEmpty => Get(nameof(DiagnosticsEmpty));
     public static string DiagnosticsHint => Get(nameof(DiagnosticsHint));
     public static string SeverityInformation => Get(nameof(SeverityInformation));

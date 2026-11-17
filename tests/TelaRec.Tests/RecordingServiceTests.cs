@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using TelaRec.Core.Contracts;
 using TelaRec.Core.Recording;
+using TelaRec.Core.Reliability;
 using TelaRec.Infrastructure.Recording;
 
 namespace TelaRec.Tests;
@@ -128,6 +129,124 @@ public class RecordingServiceTests
         finally { Directory.Delete(folder, true); }
     }
 
+    [Theory]
+    [InlineData(VideoCodec.H264)]
+    [InlineData(VideoCodec.Hevc)]
+    public async Task Selected_profile_is_forwarded_unchanged_to_encoder(VideoCodec codec)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var encoder = new FakeEncoder();
+        var profile = new RecordingProfile(RecordingContainer.Mp4, codec, 5_500_000, 24, 1280, 720);
+        await using var service = new RecordingService(new FakeCapture(), encoder, new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, $"{codec}.mp4"), Profile: profile));
+
+            Assert.NotNull(encoder.LastRequest);
+            Assert.Equal(profile, encoder.LastRequest!.EffectiveProfile);
+
+            await service.StopAsync();
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Unsupported_hevc_fails_before_capture_audio_or_partial_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var capture = new FakeCapture();
+        var audio = new FakeAudio();
+        var encoder = new FakeEncoder { UnsupportedCodec = VideoCodec.Hevc };
+        var profile = new RecordingProfile(RecordingContainer.Mp4, VideoCodec.Hevc, 5_500_000, 30, 1280, 720);
+        await using var service = new RecordingService(capture, encoder, audio, NullLogger<RecordingService>.Instance);
+        try
+        {
+            var error = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                service.StartAsync(new RecordingRequest(Path.Combine(folder, "hevc.mp4"), Profile: profile, SystemAudioEnabled: true)));
+
+            Assert.Contains("H.264", error.Message);
+            Assert.Equal(profile, encoder.LastRequest?.EffectiveProfile);
+            Assert.Equal(0, capture.StartCalls);
+            Assert.Equal(0, audio.StartCalls);
+            Assert.Empty(Directory.GetFiles(folder, "*.partial.mp4"));
+            Assert.Equal(RecordingState.Failed, service.Status.State);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Missing_external_exporter_fails_before_capture_or_partial_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var capture = new FakeCapture();
+        var audio = new FakeAudio();
+        var encoder = new FakeEncoder();
+        var profile = new RecordingProfile(RecordingContainer.Mkv, VideoCodec.H264, 1_000_000, 30, 640, 480);
+        await using var service = new RecordingService(
+            capture,
+            encoder,
+            audio,
+            NullLogger<RecordingService>.Instance,
+            new SingleExporterFactory(new UnavailablePreflightExporter()));
+        try
+        {
+            var error = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                service.StartAsync(new RecordingRequest(Path.Combine(folder, "without-ffmpeg.mkv"), Profile: profile, SystemAudioEnabled: true)));
+
+            Assert.Contains("FFmpeg", error.Message);
+            Assert.Equal(0, capture.StartCalls);
+            Assert.Equal(0, audio.StartCalls);
+            Assert.Null(encoder.LastRequest);
+            Assert.Empty(Directory.GetFiles(folder));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Complete_failure_preserves_recoverable_file_and_journal_diagnostic()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var journal = new FakeJournal();
+        var encoder = new FakeEncoder { CreateFileOnStart = true, FailOnComplete = true };
+        await using var service = new RecordingService(new FakeCapture(), encoder, new FakeAudio(), NullLogger<RecordingService>.Instance, journal: journal);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(Path.Combine(folder, "complete-failure.mp4")));
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopAsync());
+
+            var recovered = Assert.Single(Directory.GetFiles(folder, "complete-failure-recuperavel-*.mp4"));
+            Assert.Contains(recovered, error.Message);
+            Assert.Empty(Directory.GetFiles(folder, "*.partial.mp4"));
+            Assert.Equal(0, journal.Completed);
+            Assert.Contains(journal.Updates, update => update.Error?.Contains(recovered, StringComparison.Ordinal) == true);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task Final_output_collision_preserves_recoverable_file()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var output = Path.Combine(folder, "move-failure.mp4");
+        var encoder = new FakeEncoder { BeforeComplete = () => File.WriteAllBytes(output, [9, 8, 7]) };
+        await using var service = new RecordingService(new FakeCapture(), encoder, new FakeAudio(), NullLogger<RecordingService>.Instance);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(output));
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopAsync());
+
+            var recovered = Assert.Single(Directory.GetFiles(folder, "move-failure-recuperavel-*.mp4"));
+            Assert.Contains(recovered, error.Message);
+            Assert.Equal(new byte[] { 9, 8, 7 }, await File.ReadAllBytesAsync(output));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
     [Fact]
     public async Task Existing_output_is_never_overwritten()
     {
@@ -219,9 +338,11 @@ public class RecordingServiceTests
         public event EventHandler<VideoFrame>? FrameCaptured;
         public event EventHandler<Exception>? CaptureFailed;
         public RecordingRequest? LastRequest { get; private set; }
+        public int StartCalls { get; private set; }
         public CaptureFrameBounds? CaptureBounds { get; private set; } = new(0, 0, 1920, 1080);
         public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
         {
+            StartCalls++;
             LastRequest = request;
             var ticks = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
             FrameCaptured?.Invoke(this, new VideoFrame(new byte[16], 2, 2, 8, TimeSpan.FromTicks(ticks)));
@@ -234,10 +355,12 @@ public class RecordingServiceTests
     private sealed class FakeAudio : IAudioCaptureService
     {
         public bool FailOnStart;
+        public int StartCalls { get; private set; }
         public event EventHandler<AudioFrame>? AudioCaptured;
         public event EventHandler<Exception>? CaptureFailed;
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
+            StartCalls++;
             if (FailOnStart) { var error = new InvalidOperationException("Sem dispositivo"); CaptureFailed?.Invoke(this, error); throw error; }
             var ticks = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
             AudioCaptured?.Invoke(this, new AudioFrame(new byte[4], 48_000, 2, TimeSpan.FromTicks(ticks)));
@@ -261,13 +384,20 @@ public class RecordingServiceTests
     private sealed class FakeEncoder : IVideoEncoderService
     {
         public bool FailOnStart;
+        public bool FailOnComplete;
         public bool CreateFileOnStart;
+        public VideoCodec? UnsupportedCodec;
+        public Action? BeforeComplete;
         public int VideoFrames;
         public int Completed;
+        public RecordingRequest? LastRequest { get; private set; }
         public List<AudioFrame> AudioFrames { get; } = [];
         private string? _path;
         public Task StartAsync(RecordingRequest request, CancellationToken cancellationToken = default)
         {
+            LastRequest = request;
+            if (request.EffectiveProfile.VideoCodec == UnsupportedCodec)
+                throw new NotSupportedException("HEVC não está disponível. Selecione H.264.");
             if (FailOnStart) throw new InvalidOperationException("Encoder indisponível");
             _path = request.OutputPath;
             if (CreateFileOnStart) File.WriteAllBytes(_path, [1, 2, 3]);
@@ -277,6 +407,8 @@ public class RecordingServiceTests
         public Task EncodeAudioAsync(AudioFrame frame, CancellationToken cancellationToken = default) { AudioFrames.Add(frame); return Task.CompletedTask; }
         public Task CompleteAsync(CancellationToken cancellationToken = default)
         {
+            BeforeComplete?.Invoke();
+            if (FailOnComplete) throw new InvalidOperationException("Falha ao finalizar o encoder");
             File.WriteAllBytes(_path!, [1, 2, 3]); Completed++; return Task.CompletedTask;
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -285,6 +417,39 @@ public class RecordingServiceTests
     private sealed class ThrowingExporterFactory : IRecordingExporterFactory
     {
         public IRecordingExporter GetExporter(RecordingProfile profile) => new ThrowingExporter();
+    }
+
+    private sealed class SingleExporterFactory(IRecordingExporter exporter) : IRecordingExporterFactory
+    {
+        public IRecordingExporter GetExporter(RecordingProfile profile) => exporter;
+    }
+
+    private sealed class UnavailablePreflightExporter : IRecordingExporter, IRecordingExportPreflight
+    {
+        public bool CanExport(RecordingProfile profile) => true;
+        public Task<RecordingExportPreflightResult> CheckAvailabilityAsync(RecordingProfile profile, CancellationToken cancellationToken = default) =>
+            Task.FromResult(RecordingExportPreflightResult.Unavailable("FFmpeg não encontrado; selecione MP4."));
+        public Task ExportAsync(string sourcePath, string destinationPath, RecordingProfile profile, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("A exportação não deveria ser iniciada.");
+    }
+
+    private sealed class FakeJournal : IRecordingSessionJournal
+    {
+        public List<(RecordingState State, string? Error)> Updates { get; } = [];
+        public int Completed { get; private set; }
+        public Task CreateAsync(RecordingJournalEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateAsync(Guid sessionId, RecordingState state, string? error = null, CancellationToken cancellationToken = default)
+        {
+            Updates.Add((state, error));
+            return Task.CompletedTask;
+        }
+        public Task CompleteAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        {
+            Completed++;
+            return Task.CompletedTask;
+        }
+        public Task<RecoveryResult> RecoverAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RecoveryResult(0, 0, []));
     }
 
     private sealed class ThrowingExporter : IRecordingExporter

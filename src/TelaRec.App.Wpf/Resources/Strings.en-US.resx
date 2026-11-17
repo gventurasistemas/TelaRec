@@ -46,6 +46,7 @@
   <data name="RegionSelectionHint"><value>Drag to select; adjust with the corners; Enter confirms; Esc cancels</value></data>
   <data name="ApplyRegion"><value>Use region</value></data>
   <data name="SelectWindow"><value>Select window</value></data>
+  <data name="WindowNoLongerAvailable"><value>The selected window is no longer available. Choose another window.</value></data>
   <data name="UseWindow"><value>Use window</value></data>
   <data name="SelectRegion"><value>Select region</value></data>
   <data name="Cursor"><value>Cursor</value></data>
@@ -53,6 +54,7 @@
   <data name="ClickEffects"><value>Click effects</value></data>
   <data name="EnableClickEffects"><value>Highlight clicks</value></data>
   <data name="Format"><value>Format</value></data>
+  <data name="FormatDependencyHint"><value>MP4 uses native Windows components. MKV, MOV, and GIF require configured FFmpeg and are checked before recording.</value></data>
   <data name="Resolution"><value>Resolution</value></data>
   <data name="Bitrate"><value>Bitrate (bps)</value></data>
   <data name="Codec"><value>Codec</value></data>
@@ -63,7 +65,7 @@
   <data name="EncoderHardwareActive"><value>GPU</value></data>
   <data name="EncoderSoftwareActive"><value>Software</value></data>
   <data name="PerformanceSummary"><value>Encoder: {0} • Dropped frames: {1} • Average encode: {2:F1} ms</value></data>
-  <data name="HevcUnavailable"><value>HEVC is not available on this Windows installation; H.264 was selected.</value></data>
+  <data name="HevcUnavailable"><value>HEVC is not available on this Windows installation. Select H.264 to start recording.</value></data>
   <data name="Quality"><value>Quality</value></data>
   <data name="QualityHint"><value>Changing quality recalculates the suggested bitrate. You can still edit it manually.</value></data>
   <data name="QualityHigh"><value>High</value></data>
@@ -100,7 +102,10 @@
   <data name="ScheduleFormHint"><value>Pick a start time and duration; the schedule uses the current settings.</value></data>
   <data name="SchedulesEmpty"><value>No schedules in this session.</value></data>
   <data name="ScheduledStatePending"><value>Pending</value></data>
+  <data name="ScheduledStateStarting"><value>Starting</value></data>
   <data name="ScheduledStateRecording"><value>Recording</value></data>
+  <data name="ScheduledStateCancelling"><value>Cancelling</value></data>
+  <data name="ScheduledStateCancelled"><value>Cancelled</value></data>
   <data name="ScheduledStateCompleted"><value>Completed</value></data>
   <data name="ScheduledStateRejected"><value>Rejected</value></data>
   <data name="ScheduledStateFailed"><value>Failed</value></data>
@@ -118,6 +123,7 @@
   <data name="ScheduleCreateFailed"><value>Could not schedule: {0}</value></data>
   <data name="ScheduleMissingTimes"><value>Provide a future start time and a positive duration.</value></data>
   <data name="ScheduleCancelled"><value>Schedule cancelled.</value></data>
+  <data name="ScheduleCancelFailed"><value>Could not cancel the scheduled recording: {0}</value></data>
   <data name="DiagnosticsEmpty"><value>No diagnostics recorded.</value></data>
   <data name="DiagnosticsHint"><value>The last 20 events appear here and in the file log.</value></data>
   <data name="SeverityInformation"><value>Info</value></data>

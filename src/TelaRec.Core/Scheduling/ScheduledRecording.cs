@@ -9,9 +9,10 @@ public sealed record ScheduledRecording(
     RecordingRequest Request)
 {
     public bool IsValid => StartsAt > DateTimeOffset.UtcNow && StopsAt > StartsAt;
+    public bool IsValidAt(DateTimeOffset now) => StartsAt > now && StopsAt > StartsAt;
 }
 
-public enum ScheduledRecordingState { Pending, Recording, Completed, Rejected, Failed }
+public enum ScheduledRecordingState { Pending, Starting, Recording, Cancelling, Cancelled, Completed, Rejected, Failed }
 
 /// <summary>
 /// Código do motivo associado a um estado de agendamento. A mensagem textual

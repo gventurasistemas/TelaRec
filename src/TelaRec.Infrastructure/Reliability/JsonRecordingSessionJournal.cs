@@ -95,6 +95,7 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
                         removed++;
                     }
                     diagnostics.Add($"Sessão interrompida {entry.SessionId:N} recuperada.");
+                    if (!string.IsNullOrWhiteSpace(entry.Error)) diagnostics.Add(entry.Error);
                 }
                 File.Delete(path);
             }

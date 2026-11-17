@@ -12,6 +12,7 @@ public partial class RegionOverlayWindow : Window
     private readonly System.Drawing.Rectangle _screenBounds;
     private readonly double _dpiScaleX;
     private readonly double _dpiScaleY;
+    private readonly int _monitorIndex;
     private Point _start;
     private bool _drawing;
     private CaptureTarget.Region? _selection;
@@ -20,12 +21,13 @@ public partial class RegionOverlayWindow : Window
     internal bool IsDrawing => _drawing;
     internal CaptureTarget.Region? CurrentSelection => _selection;
 
-    public RegionOverlayWindow(System.Windows.Forms.Screen screen, double dpiScaleX, double dpiScaleY)
+    public RegionOverlayWindow(System.Windows.Forms.Screen screen, double dpiScaleX, double dpiScaleY, int monitorIndex = 0)
     {
         InitializeComponent();
         _screenBounds = screen.Bounds;
         _dpiScaleX = dpiScaleX;
         _dpiScaleY = dpiScaleY;
+        _monitorIndex = Math.Max(0, monitorIndex);
         Left = screen.Bounds.Left / dpiScaleX;
         Top = screen.Bounds.Top / dpiScaleY;
         Width = screen.Bounds.Width / dpiScaleX;
@@ -86,7 +88,7 @@ public partial class RegionOverlayWindow : Window
         top = Math.Clamp(top, _screenBounds.Top, _screenBounds.Bottom - 2);
         right = Math.Clamp(right, left + 2, _screenBounds.Right);
         bottom = Math.Clamp(bottom, top + 2, _screenBounds.Bottom);
-        _selection = new CaptureTarget.Region(left, top, right - left, bottom - top);
+        _selection = new CaptureTarget.Region(left, top, right - left, bottom - top, _monitorIndex);
         RenderSelection();
     }
 
@@ -100,7 +102,7 @@ public partial class RegionOverlayWindow : Window
         top = Math.Clamp(top, _screenBounds.Top, _screenBounds.Bottom);
         right = Math.Clamp(right, _screenBounds.Left, _screenBounds.Right);
         bottom = Math.Clamp(bottom, _screenBounds.Top, _screenBounds.Bottom);
-        _selection = new CaptureTarget.Region(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+        _selection = new CaptureTarget.Region(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top), _monitorIndex);
         RenderSelection();
     }
 

@@ -9,7 +9,20 @@ namespace TelaRec.Infrastructure.Recording;
 
 public sealed class RecordingService : IRecordingService, IRecordingTelemetrySource, IAsyncDisposable
 {
-    private sealed record Packet(TimeSpan Timestamp, VideoFrame? Video = null, AudioFrame? Audio = null, AudioSource? AudioSource = null);
+    /// <summary>
+    /// A gravação preserva a ordem FIFO. Quando há pressão, os vídeos mais novos são
+    /// descartados antes de escalar/compor para reservar espaço aos pacotes de áudio.
+    /// </summary>
+    internal const int QueueCapacity = 8;
+    internal const int VideoQueueHighWatermark = 6;
+    internal const long MaximumQueuedVideoBytes = 64L * 1024 * 1024;
+
+    private sealed record Packet(
+        TimeSpan Timestamp,
+        VideoFrame? Video = null,
+        AudioFrame? Audio = null,
+        AudioSource? AudioSource = null,
+        long EnqueuedAtTimestamp = 0);
     private readonly IVideoCaptureService _capture;
     private readonly IVideoEncoderService _encoder;
     private readonly IAudioCaptureService _audio;
@@ -26,6 +39,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _disposeSync = new();
     private readonly object _journalSync = new();
+    private readonly object _queueMetricsSync = new();
     private Task? _disposeTask;
     private Channel<Packet>? _queue;
     private Task? _encodeTask;
@@ -33,6 +47,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     private Task _journalUpdateTail = Task.CompletedTask;
     private Exception? _encodeError;
     private string? _temporaryPath;
+    private string? _preservedPartialPath;
     private string? _outputPath;
     private long _originTicks;
     private long _pauseStartedTicks;
@@ -50,6 +65,15 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     private long _queueDroppedAudioPackets;
     private long _encodedFrames;
     private long _encodeDurationTicks;
+    private long _receivedVideoFrames;
+    private long _queueLatencyTicks;
+    private long _queueLatencySamples;
+    private long _managedAllocationStart;
+    private int _queueDepth;
+    private int _peakQueueDepth;
+    private int _peakReorderQueueDepth;
+    private long _queuedVideoBytes;
+    private long _peakQueuedVideoBytes;
     private RecordingStatus _status = RecordingStatus.Initial;
     public RecordingStatus Status => _status;
     public RecordingPerformanceTelemetry CurrentTelemetry
@@ -59,15 +83,28 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             var capture = _capture as IVideoCaptureTelemetrySource;
             var encoded = Interlocked.Read(ref _encodedFrames);
             var average = encoded == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(Interlocked.Read(ref _encodeDurationTicks) / encoded);
+            var latencySamples = Interlocked.Read(ref _queueLatencySamples);
+            var queueLatency = latencySamples == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(Interlocked.Read(ref _queueLatencyTicks) / latencySamples);
             return new RecordingPerformanceTelemetry(
-                capture?.CapturedFrames ?? encoded,
+                capture?.CapturedFrames ?? Interlocked.Read(ref _receivedVideoFrames),
                 capture?.RateLimitedFrames ?? 0,
                 capture?.RepeatedFrames ?? 0,
                 Interlocked.Read(ref _queueDroppedVideoFrames),
                 Interlocked.Read(ref _queueDroppedAudioPackets),
                 encoded,
                 average,
-                (_encoder as IVideoEncoderTelemetrySource)?.UsingHardwareEncoder ?? false);
+                (_encoder as IVideoEncoderTelemetrySource)?.UsingHardwareEncoder ?? false)
+            {
+                QueueCapacity = QueueCapacity,
+                QueueDepth = Volatile.Read(ref _queueDepth),
+                PeakQueueDepth = Volatile.Read(ref _peakQueueDepth),
+                PeakReorderQueueDepth = Volatile.Read(ref _peakReorderQueueDepth),
+                QueuedVideoBytes = Interlocked.Read(ref _queuedVideoBytes),
+                PeakQueuedVideoBytes = Interlocked.Read(ref _peakQueuedVideoBytes),
+                MaximumQueuedVideoBytes = MaximumQueuedVideoBytes,
+                AverageQueueLatency = queueLatency,
+                ManagedAllocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(precise: false) - Interlocked.Read(ref _managedAllocationStart))
+            };
         }
     }
     public event EventHandler<RecordingStatus>? StatusChanged;
@@ -139,6 +176,16 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                 throw new ArgumentException($"A saída deve usar a extensão {_profile.FileExtension}.", nameof(request));
             if (_profile.Container != RecordingContainer.Mp4 && _exporters is null)
                 throw new NotSupportedException("Nenhum backend de pós-processamento foi configurado.");
+            if (_profile.Container != RecordingContainer.Mp4)
+            {
+                var exporter = _exporters!.GetExporter(_profile);
+                if (exporter is IRecordingExportPreflight preflight)
+                {
+                    var availability = await preflight.CheckAvailabilityAsync(_profile, cancellationToken).ConfigureAwait(false);
+                    if (!availability.IsAvailable)
+                        throw new NotSupportedException(availability.Message);
+                }
+            }
             if (_machine.State == RecordingState.Failed && _queue is not null)
                 await CleanupAsync().ConfigureAwait(false);
             _failedCleanupTask = null;
@@ -149,6 +196,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             if (File.Exists(_outputPath))
                 throw new IOException($"Já existe uma gravação no destino: {_outputPath}");
             _temporaryPath = Path.Combine(Path.GetDirectoryName(_outputPath)!, $".{Path.GetFileNameWithoutExtension(_outputPath)}.{Guid.NewGuid():N}.partial.mp4");
+            _preservedPartialPath = null;
             _sessionId = Guid.NewGuid();
             _journalCreated = false;
             lock (_journalSync) _journalUpdateTail = Task.CompletedTask;
@@ -157,11 +205,23 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                 await _journal.CreateAsync(new RecordingJournalEntry(_sessionId, _temporaryPath, _outputPath, DateTimeOffset.UtcNow, RecordingState.Starting, null), cancellationToken).ConfigureAwait(false);
                 _journalCreated = true;
             }
-            _queue = Channel.CreateBounded<Packet>(new BoundedChannelOptions(32) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
+            _queue = Channel.CreateBounded<Packet>(new BoundedChannelOptions(QueueCapacity) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
             Interlocked.Exchange(ref _queueDroppedVideoFrames, 0);
             Interlocked.Exchange(ref _queueDroppedAudioPackets, 0);
             Interlocked.Exchange(ref _encodedFrames, 0);
             Interlocked.Exchange(ref _encodeDurationTicks, 0);
+            Interlocked.Exchange(ref _receivedVideoFrames, 0);
+            Interlocked.Exchange(ref _queueLatencyTicks, 0);
+            Interlocked.Exchange(ref _queueLatencySamples, 0);
+            Interlocked.Exchange(ref _managedAllocationStart, GC.GetTotalAllocatedBytes(precise: false));
+            lock (_queueMetricsSync)
+            {
+                _queueDepth = 0;
+                _peakQueueDepth = 0;
+                _peakReorderQueueDepth = 0;
+                _queuedVideoBytes = 0;
+                _peakQueuedVideoBytes = 0;
+            }
             _encodeError = null; _paused = false; _pausedTicks = 0; _pauseStartedTicks = 0;
             _audioMix = request.EffectiveAudioMix;
             _audioEnabled = _audioMix.HasEnabledSource && _profile.Container != RecordingContainer.Gif;
@@ -170,7 +230,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             _fps = _profile.FramesPerSecond;
             _originTicks = NowTicks();
             _composer.Configure(request.EffectiveOverlays);
-            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = RecordingProfile.Mvp with { FramesPerSecond = _profile.FramesPerSecond, Bitrate = _profile.Bitrate, Width = _profile.Width, Height = _profile.Height } }, cancellationToken).ConfigureAwait(false);
+            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = _profile }, cancellationToken).ConfigureAwait(false);
             _encodeTask = Task.Run(() => EncodeLoopAsync(_queue.Reader), CancellationToken.None);
             await _capture.StartAsync(request, cancellationToken).ConfigureAwait(false);
             _composer.SetClickEffectContext(_capture.CaptureBounds);
@@ -278,8 +338,8 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                     var preserved = PreserveIntermediateAfterExportFailure();
                     throw new InvalidOperationException(
                         preserved is null
-                            ? "A conversão falhou; o arquivo final não foi publicado."
-                            : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}.",
+                            ? $"A conversão falhou; o arquivo final não foi publicado. Detalhe: {exception.Message}"
+                            : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}. Detalhe: {exception.Message}",
                         exception);
                 }
             }
@@ -293,12 +353,31 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             Publish(RecordingState.Completed);
             _logger.LogInformation("Gravação concluída: {OutputPath}", _outputPath);
         }
-        catch (Exception exception) { _logger.LogError(exception, "Falha ao finalizar gravação"); Fail(exception.Message); throw; }
+        catch (Exception exception)
+        {
+            var preserved = PreservePartialAfterFinalizationFailure();
+            var message = preserved is null
+                ? $"Falha ao finalizar gravação: {exception.Message}"
+                : _profile.Container == RecordingContainer.Mp4
+                    ? $"Falha ao finalizar gravação. O arquivo recuperável foi preservado em {preserved}."
+                    : $"A conversão falhou; o MP4 intermediário foi preservado em {preserved}.";
+            _logger.LogError(exception, "{Message}", message);
+            Fail(message);
+            throw new InvalidOperationException(message, exception);
+        }
         finally { await CleanupAsync().ConfigureAwait(false); _gate.Release(); }
     }
     private void OnFrameCaptured(object? sender, VideoFrame frame)
     {
         if (_paused || _machine.State is not (RecordingState.Recording or RecordingState.Starting)) return;
+        Interlocked.Increment(ref _receivedVideoFrames);
+        var expectedBytes = _profile.Width * (long)_profile.Height * sizeof(uint);
+        if (Volatile.Read(ref _queueDepth) >= VideoQueueHighWatermark ||
+            Interlocked.Read(ref _queuedVideoBytes) + expectedBytes > MaximumQueuedVideoBytes)
+        {
+            Interlocked.Increment(ref _queueDroppedVideoFrames);
+            return;
+        }
         var timestamp = Normalize(frame.Timestamp);
         var scaled = _scaler.Scale(frame with { Timestamp = timestamp }, _profile.Width, _profile.Height);
         Enqueue(new Packet(timestamp, Video: _composer.Compose(scaled)));
@@ -317,8 +396,25 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     }
     private void Enqueue(Packet packet)
     {
-        var writer = _queue?.Writer;
-        if (writer is null || writer.TryWrite(packet)) return;
+        packet = packet with { EnqueuedAtTimestamp = Stopwatch.GetTimestamp() };
+        lock (_queueMetricsSync)
+        {
+            var writer = _queue?.Writer;
+            var queueFull = _queueDepth >= QueueCapacity;
+            var videoExceedsBudget = packet.Video is { } candidateVideo &&
+                (_queueDepth >= VideoQueueHighWatermark || _queuedVideoBytes + candidateVideo.Pixels.LongLength > MaximumQueuedVideoBytes);
+            if (!queueFull && !videoExceedsBudget && writer is not null && writer.TryWrite(packet))
+            {
+                _queueDepth++;
+                _peakQueueDepth = Math.Max(_peakQueueDepth, _queueDepth);
+                if (packet.Video is { } video)
+                {
+                    _queuedVideoBytes += video.Pixels.LongLength;
+                    _peakQueuedVideoBytes = Math.Max(_peakQueuedVideoBytes, _queuedVideoBytes);
+                }
+                return;
+            }
+        }
         if (packet.Video is not null) Interlocked.Increment(ref _queueDroppedVideoFrames);
         else Interlocked.Increment(ref _queueDroppedAudioPackets);
     }
@@ -334,21 +430,43 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         {
             await foreach (var packet in reader.ReadAllAsync().ConfigureAwait(false))
             {
+                RecordPacketDequeued(packet);
                 if (!videoStarted)
                 {
-                    if (packet.Video is null) { pending.Enqueue(packet, packet.Timestamp.Ticks); if (pending.Count > 32) pending.Dequeue(); continue; }
+                    if (packet.Video is null)
+                    {
+                        pending.Enqueue(packet, packet.Timestamp.Ticks);
+                        if (pending.Count > QueueCapacity)
+                        {
+                            var dropped = pending.Dequeue();
+                            RecordDroppedPacket(dropped);
+                            ReleasePacket(dropped);
+                        }
+                        RecordReorderQueueDepth(pending.Count);
+                        continue;
+                    }
                     var began = Stopwatch.GetTimestamp();
-                    await _encoder.EncodeAsync(packet.Video).ConfigureAwait(false);
-                    RecordEncodeTime(began, packet.Video.Timestamp);
+                    try
+                    {
+                        await _encoder.EncodeAsync(packet.Video).ConfigureAwait(false);
+                        RecordEncodeTime(began, packet.Video.Timestamp);
+                    }
+                    finally { ReleasePacket(packet); }
                     videoEnd = packet.Video.Timestamp.Ticks + TimeSpan.TicksPerSecond / _fps;
                     videoStarted = true;
-                    pending.Clear();
+                    while (pending.Count > 0)
+                    {
+                        var dropped = pending.Dequeue();
+                        RecordDroppedPacket(dropped);
+                        ReleasePacket(dropped);
+                    }
                     continue;
                 }
                 pending.Enqueue(packet, packet.Timestamp.Ticks);
                 var watermark = Math.Max(0, NowTicks() - _originTicks - _pausedTicks - TimeSpan.TicksPerSecond / 5);
-                while (pending.TryPeek(out _, out var timestamp) && (timestamp <= watermark || pending.Count > 64))
+                while (pending.TryPeek(out _, out var timestamp) && (timestamp <= watermark || pending.Count > QueueCapacity))
                     await WriteAsync(pending.Dequeue()).ConfigureAwait(false);
+                RecordReorderQueueDepth(pending.Count);
             }
             if (!videoStarted) throw new InvalidOperationException("Nenhum quadro de vídeo foi capturado.");
             while (pending.Count > 0) await WriteAsync(pending.Dequeue()).ConfigureAwait(false);
@@ -371,19 +489,36 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             Fail(exception.Message);
             if (wasActive) ScheduleFailedCleanup();
         }
+        finally
+        {
+            while (pending.Count > 0) ReleasePacket(pending.Dequeue());
+            while (reader.TryRead(out var abandoned))
+            {
+                RecordDroppedPacket(abandoned);
+                ReleasePacket(abandoned);
+            }
+        }
         async Task WriteAsync(Packet packet)
         {
             if (packet.Video is { } video)
             {
                 var began = Stopwatch.GetTimestamp();
-                await _encoder.EncodeAsync(video).ConfigureAwait(false);
-                RecordEncodeTime(began, video.Timestamp);
+                try
+                {
+                    await _encoder.EncodeAsync(video).ConfigureAwait(false);
+                    RecordEncodeTime(began, video.Timestamp);
+                }
+                finally { ReleasePacket(packet); }
                 videoEnd = Math.Max(videoEnd, video.Timestamp.Ticks + TimeSpan.TicksPerSecond / _fps);
                 return;
             }
-            if (packet.Audio is not { } audio || !_audioEnabled) return;
-            audioMixer.Add(packet.AudioSource ?? AudioSource.System, audio);
-            foreach (var mixed in audioMixer.DrainReady()) await EncodeMixedAudioAsync(mixed).ConfigureAwait(false);
+            try
+            {
+                if (packet.Audio is not { } audio || !_audioEnabled) return;
+                audioMixer.Add(packet.AudioSource ?? AudioSource.System, audio);
+                foreach (var mixed in audioMixer.DrainReady()) await EncodeMixedAudioAsync(mixed).ConfigureAwait(false);
+            }
+            finally { ReleasePacket(packet); }
         }
         async Task EncodeMixedAudioAsync(AudioFrame audio)
         {
@@ -415,7 +550,16 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         _failedCleanupTask = Task.Run(async () =>
         {
             await _gate.WaitAsync().ConfigureAwait(false);
-            try { if (_machine.State == RecordingState.Failed && _queue is not null) await CleanupAsync().ConfigureAwait(false); }
+            try
+            {
+                if (_machine.State == RecordingState.Failed && _queue is not null)
+                {
+                    var preserved = PreservePartialAfterFinalizationFailure();
+                    if (preserved is not null)
+                        Publish(RecordingState.Failed, $"Falha na gravação. O arquivo recuperável foi preservado em {preserved}.");
+                    await CleanupAsync().ConfigureAwait(false);
+                }
+            }
             catch (Exception cleanupError) { _logger.LogError(cleanupError, "Falha ao limpar gravação interrompida"); }
             finally { _gate.Release(); }
         });
@@ -428,6 +572,34 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         if (elapsed > TimeSpan.FromMilliseconds(200))
             _logger.LogWarning("Encoder lento no quadro {Timestamp}: {Elapsed}", timestamp, elapsed);
     }
+    private void RecordPacketDequeued(Packet packet)
+    {
+        if (packet.EnqueuedAtTimestamp == 0) return;
+        Interlocked.Increment(ref _queueLatencySamples);
+        Interlocked.Add(ref _queueLatencyTicks, Stopwatch.GetElapsedTime(packet.EnqueuedAtTimestamp).Ticks);
+    }
+    private void ReleasePacket(Packet packet)
+    {
+        lock (_queueMetricsSync)
+        {
+            if (_queueDepth > 0) _queueDepth--;
+            if (packet.Video is { } video)
+                _queuedVideoBytes = Math.Max(0, _queuedVideoBytes - video.Pixels.LongLength);
+        }
+    }
+    private void RecordReorderQueueDepth(int depth)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _peakReorderQueueDepth);
+            if (depth <= current || Interlocked.CompareExchange(ref _peakReorderQueueDepth, depth, current) == current) return;
+        }
+    }
+    private void RecordDroppedPacket(Packet packet)
+    {
+        if (packet.Video is not null) Interlocked.Increment(ref _queueDroppedVideoFrames);
+        else Interlocked.Increment(ref _queueDroppedAudioPackets);
+    }
     private void Publish(RecordingState state, string? error = null)
     {
         var elapsed = _originTicks == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(Math.Max(0, NowTicks() - _originTicks - _pausedTicks - (_paused ? NowTicks() - _pauseStartedTicks : 0)));
@@ -436,10 +608,12 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         if (state is RecordingState.Completed or RecordingState.Failed)
         {
             var telemetry = CurrentTelemetry;
-            _logger.LogInformation("Telemetria da gravação: Captured={CapturedFrames}; Dropped={DroppedFrames}; Encoded={EncodedFrames}; AverageEncode={AverageEncode}; Encoder={Encoder}",
-                telemetry.CapturedFrames, telemetry.DroppedFrames, telemetry.EncodedFrames, telemetry.AverageEncodeTime, telemetry.UsingHardwareEncoder ? "hardware" : "software");
+            _logger.LogInformation("Telemetria da gravação: Captured={CapturedFrames}; Dropped={DroppedFrames}; Encoded={EncodedFrames}; Queue={QueueDepth}/{QueueCapacity} Peak={PeakQueueDepth}; ReorderPeak={ReorderPeak}; VideoBytes={QueuedVideoBytes}/{MaximumQueuedVideoBytes} PeakVideoBytes={PeakQueuedVideoBytes}; AverageQueue={AverageQueue}; AverageEncode={AverageEncode}; Allocated={AllocatedBytes}; Encoder={Encoder}",
+                telemetry.CapturedFrames, telemetry.DroppedFrames, telemetry.EncodedFrames, telemetry.QueueDepth, telemetry.QueueCapacity, telemetry.PeakQueueDepth, telemetry.PeakReorderQueueDepth, telemetry.QueuedVideoBytes, telemetry.MaximumQueuedVideoBytes, telemetry.PeakQueuedVideoBytes, telemetry.AverageQueueLatency, telemetry.AverageEncodeTime, telemetry.ManagedAllocatedBytes, telemetry.UsingHardwareEncoder ? "hardware" : "software");
             if (telemetry.DroppedFrames > 0)
                 _diagnostics?.Report(DiagnosticSeverity.Warning, "recording.frames_dropped", $"{telemetry.DroppedFrames} quadros foram descartados durante a gravação.");
+            if (telemetry.QueueDroppedAudioPackets > 0)
+                _diagnostics?.Report(DiagnosticSeverity.Warning, "recording.audio_packets_dropped", $"{telemetry.QueueDroppedAudioPackets} pacotes de áudio foram descartados durante a gravação.");
         }
         if (error is not null) _diagnostics?.Report(state == RecordingState.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning, $"recording.{state}".ToLowerInvariant(), error);
         if (_journal is not null && _journalCreated && _sessionId != Guid.Empty && state is not RecordingState.Completed)
@@ -481,6 +655,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             var path = Path.Combine(directory, $"{stem}-intermediario-{_sessionId:N}.mp4");
             File.Move(_temporaryPath, path);
             _temporaryPath = null;
+            _preservedPartialPath = path;
             _logger.LogWarning("Conversão externa falhou; MP4 intermediário preservado em {Path}", path);
             return path;
         }
@@ -489,6 +664,31 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             _logger.LogWarning(exception, "Não foi possível preservar o MP4 intermediário após falha de exportação");
             return null;
         }
+    }
+
+    private string? PreservePartialAfterFinalizationFailure()
+    {
+        if (_preservedPartialPath is not null) return _preservedPartialPath;
+        if (_temporaryPath is null || !File.Exists(_temporaryPath)) return null;
+
+        var originalPath = _temporaryPath;
+        var directory = Path.GetDirectoryName(originalPath)!;
+        var stem = Path.GetFileNameWithoutExtension(_outputPath ?? "TelaRec");
+        var recoveryPath = Path.Combine(directory, $"{stem}-recuperavel-{_sessionId:N}.mp4");
+        try
+        {
+            File.Move(originalPath, recoveryPath);
+            _temporaryPath = null;
+            _preservedPartialPath = recoveryPath;
+            _logger.LogWarning("Finalização falhou; arquivo recuperável preservado em {Path}", recoveryPath);
+        }
+        catch (Exception exception)
+        {
+            // O arquivo original continua sendo a única evidência recuperável.
+            _preservedPartialPath = originalPath;
+            _logger.LogWarning(exception, "Não foi possível renomear o arquivo parcial; preservando em {Path}", originalPath);
+        }
+        return _preservedPartialPath;
     }
     private async Task CleanupAsync()
     {
@@ -500,14 +700,17 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         try { if (_microphone is not null) await _microphone.StopAsync().ConfigureAwait(false); } catch (Exception e) { _logger.LogWarning(e, "Falha ao liberar microfone"); }
         if (_encodeTask is not null) await _encodeTask.ConfigureAwait(false);
         await _encoder.DisposeAsync().ConfigureAwait(false);
-        if (_temporaryPath is not null && File.Exists(_temporaryPath)) File.Delete(_temporaryPath);
+        if (_preservedPartialPath is null && _temporaryPath is not null && File.Exists(_temporaryPath)) File.Delete(_temporaryPath);
         if (_journal is not null && _journalCreated)
         {
             await FlushJournalUpdatesAsync().ConfigureAwait(false);
-            await _journal.CompleteAsync(_sessionId).ConfigureAwait(false);
+            if (_preservedPartialPath is null)
+                await _journal.CompleteAsync(_sessionId).ConfigureAwait(false);
+            else
+                _logger.LogWarning("Journal da sessão {SessionId} foi preservado para recuperação de {Path}", _sessionId, _preservedPartialPath);
             _journalCreated = false;
         }
-        _queue = null; _encodeTask = null; _temporaryPath = null; _outputPath = null;
+        _queue = null; _encodeTask = null; _temporaryPath = null; _outputPath = null; _preservedPartialPath = null;
     }
     private static long NowTicks() => (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
     public ValueTask DisposeAsync()

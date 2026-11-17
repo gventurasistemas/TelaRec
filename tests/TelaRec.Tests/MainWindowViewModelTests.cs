@@ -55,6 +55,61 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Available_hevc_is_preserved_in_request()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings { OutputDirectory = directory, VideoCodec = VideoCodec.Hevc }
+            };
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                settings,
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                encoderCapabilities: new FakeEncoderCapabilities(new VideoEncoderCapabilities(false, true)));
+
+            await viewModel.LoadAsync();
+            await viewModel.StartRecordingAsync();
+
+            Assert.True(recording.StartCalled);
+            Assert.Equal(VideoCodec.Hevc, recording.LastRequest?.EffectiveProfile.VideoCodec);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Unavailable_hevc_is_not_silently_replaced_and_blocks_start()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = new FakeSettingsService(directory)
+            {
+                Settings = new TelaRecSettings { OutputDirectory = directory, VideoCodec = VideoCodec.Hevc }
+            };
+            var recording = new FakeRecordingService();
+            var viewModel = CreateViewModel(
+                settings,
+                recording,
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                encoderCapabilities: new FakeEncoderCapabilities(VideoEncoderCapabilities.SafeDefault));
+
+            await viewModel.LoadAsync();
+            await viewModel.StartRecordingAsync();
+
+            Assert.False(recording.StartCalled);
+            Assert.Equal(nameof(VideoCodec.Hevc), viewModel.SelectedVideoCodec);
+            Assert.Contains(viewModel.VideoCodecOptions, option => option.Value == nameof(VideoCodec.Hevc));
+            Assert.Equal(Strings.HevcUnavailable, viewModel.StatusMessage);
+            Assert.Equal(VideoCodec.Hevc, settings.Settings.VideoCodec);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Invalid_settings_are_not_started()
     {
         var directory = NewDirectory();
@@ -272,7 +327,7 @@ public sealed class MainWindowViewModelTests
                     LastCaptureMode = "region",
                     LastCaptureTarget = new TelaRec.Core.Capture.CaptureTargetSettings
                     {
-                        Kind = "region", X = -400, Y = 30, Width = 800, Height = 600
+                        Kind = "region", DisplayIndex = 2, X = -400, Y = 30, Width = 800, Height = 600
                     }
                 }
             };
@@ -281,7 +336,8 @@ public sealed class MainWindowViewModelTests
             await viewModel.LoadAsync();
 
             Assert.Equal(MainWindowViewModel.CaptureModeRegion, viewModel.CaptureMode);
-            Assert.Equal(new TelaRec.Core.Capture.CaptureTarget.Region(-400, 30, 800, 600), viewModel.BuildCaptureTarget());
+            Assert.Equal(new TelaRec.Core.Capture.CaptureTarget.Region(-400, 30, 800, 600, 2), viewModel.BuildCaptureTarget());
+            Assert.Equal(2, viewModel.SelectedDisplayIndex);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -387,6 +443,36 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Failed_schedule_cancellation_keeps_item_and_reports_error()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var scheduler = new FakeScheduler { CancelException = new InvalidOperationException("Parada recusada") };
+            var diagnostics = new FakeDiagnostics();
+            var viewModel = CreateViewModel(
+                new FakeSettingsService(directory),
+                new FakeRecordingService(),
+                new FakeAvailabilityProbe(new RecordingAvailability(true)),
+                diagnostics: diagnostics,
+                scheduler: scheduler);
+            await viewModel.LoadAsync();
+            viewModel.ScheduledStart = DateTime.Now.AddMinutes(5);
+            viewModel.ScheduledMinutes = 10;
+            await viewModel.ScheduleRecordingAsync();
+
+            var item = Assert.Single(viewModel.Schedules);
+            await viewModel.CancelScheduleAsync(item.Id);
+
+            Assert.Single(viewModel.Schedules);
+            Assert.Equal(item.Id, viewModel.Schedules[0].Id);
+            Assert.Contains("Parada recusada", viewModel.StatusMessage);
+            Assert.Contains(viewModel.Diagnostics, diagnostic => diagnostic.Code == "schedule.cancel_failed");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Invalid_bitrate_blocks_start()
     {
         var directory = NewDirectory();
@@ -465,9 +551,10 @@ public sealed class MainWindowViewModelTests
         IScreenshotService? screenshot = null,
         IRecordingDiagnostics? diagnostics = null,
         IRecordingScheduler? scheduler = null,
-        IMicrophoneCaptureService? microphone = null) =>
+        IMicrophoneCaptureService? microphone = null,
+        IVideoEncoderCapabilitiesService? encoderCapabilities = null) =>
         new(settings, recording, scheduler ?? new FakeScheduler(), diagnostics ?? new SilentDiagnostics(), availability,
-            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone);
+            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone, encoderCapabilities);
 
     private static string NewDirectory()
     {
@@ -602,9 +689,15 @@ public sealed class MainWindowViewModelTests
         public RecordingAvailability Check() => availability;
     }
 
+    private sealed class FakeEncoderCapabilities(VideoEncoderCapabilities capabilities) : IVideoEncoderCapabilitiesService
+    {
+        public VideoEncoderCapabilities GetCapabilities() => capabilities;
+    }
+
     private sealed class FakeScheduler : IRecordingScheduler
     {
         private readonly List<ScheduledRecordingStatus> _statuses = [];
+        public Exception? CancelException { get; set; }
 
         public IReadOnlyList<ScheduledRecordingStatus> Scheduled => _statuses;
         public event EventHandler<ScheduledRecordingStatus>? StatusChanged;
@@ -619,6 +712,7 @@ public sealed class MainWindowViewModelTests
 
         public Task CancelAsync(Guid scheduleId, CancellationToken cancellationToken = default)
         {
+            if (CancelException is not null) throw CancelException;
             _statuses.RemoveAll(status => status.Id == scheduleId);
             return Task.CompletedTask;
         }
