@@ -288,8 +288,9 @@ public sealed class MainWindowViewModelTests
 
             Assert.False(await viewModel.SaveSettingsAsync());
             Assert.Equal(Strings.ValidationSummary, viewModel.StatusMessage);
-            Assert.Contains(viewModel.GetErrors(nameof(viewModel.ToggleRecordingHotkey)).Cast<string>(),
-                error => error.Contains("Atalho inválido"));
+            Assert.Contains(
+                string.Format(Strings.ValidationHotkeyInvalid, viewModel.ToggleRecordingHotkey),
+                viewModel.GetErrors(nameof(viewModel.ToggleRecordingHotkey)).Cast<string>());
         }
         finally { Directory.Delete(directory, true); }
     }
