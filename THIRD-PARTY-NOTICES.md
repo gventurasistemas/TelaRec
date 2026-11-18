@@ -17,10 +17,12 @@ O TelaRec é licenciado sob MIT; consulte `LICENSE`. Os textos completos das lic
 | `OpenCvSharp4` e `OpenCvSharp4.runtime.win`, incluindo `OpenCvSharpExtern.dll` | 4.10.0.20240616 | Apache-2.0 | [OpenCvSharp](https://github.com/shimat/opencvsharp) |
 | OpenCV, incluído pelo runtime OpenCvSharp | conforme binário do pacote | Apache-2.0 | [OpenCV](https://opencv.org/license/) |
 
-## Política de FFmpeg
+## FFmpeg incluído na publicação
 
-FFmpeg **não é distribuído** pelo TelaRec e não consta do ZIP nem deste inventário de componentes embarcados. MKV, MOV e GIF são recursos opcionais. O usuário ou a organização deve obter um `ffmpeg.exe` compatível de fonte confiável, revisar a licença e definir `TELAREC_FFMPEG_PATH` com caminho absoluto, ou fornecer `tools\ffmpeg.exe` ao lado do aplicativo. O projeto não faz download automático e não pesquisa `PATH` para evitar executar um binário ambíguo.
+O pacote inclui `tools\ffmpeg.exe` somente para conversão de MKV, MOV e GIF. A build local é fornecida pelo mantenedor na pasta `ffmpeg` e é copiada pela publicação junto com `tools\FFMPEG-LICENSE.txt` e `tools\FFMPEG-BUILD-README.txt`.
 
-MP4/H.264 e MP4/HEVC usam Media Foundation do Windows e não dependem de FFmpeg. A disponibilidade de FFmpeg e dos encoders/filtros necessários é verificada antes de uma captura MKV, MOV ou GIF; quando indisponível, nenhuma sessão nem arquivo parcial é criado.
+| Componente publicado | Versão | Licença declarada | Origem e código-fonte |
+| --- | --- | --- | --- |
+| FFmpeg Essentials para Windows x64 | 2026-11-16-git-d35e13b9e0 | GPL-3.0-or-later | Build [gyan.dev](https://www.gyan.dev/ffmpeg/builds/); [fonte correspondente](https://github.com/FFmpeg/FFmpeg/commit/d35e13b9e0) |
 
-Uma futura redistribuição de FFmpeg exige aprovação jurídica explícita, inclusão da versão, origem, configuração de build, licença aplicável e respectivos avisos no inventário antes de qualquer pacote ser publicado.
+Antes de redistribuir uma nova build, atualize a versão, a origem, o commit de código-fonte, os arquivos de licença e a documentação de build acima. MP4/H.264 e MP4/HEVC usam Media Foundation do Windows e não dependem de FFmpeg.
