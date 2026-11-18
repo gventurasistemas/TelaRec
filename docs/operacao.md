@@ -11,7 +11,7 @@
 
 ## Recuperação
 
-Na abertura, o TelaRec recupera journals interrompidos e remove somente `.partial.mp4`, temporário de exportação associado e `.json.tmp` na pasta privada. Em uma falha de finalização, o MP4 é preservado como `*-recuperavel-<sessão>.mp4`; não o apague antes de validar a reprodução. Para conversão externa falha, procure também `*-intermediario-<sessão>.mp4`.
+Na abertura, o TelaRec remove somente escritas incompletas `.json.tmp` da pasta privada do journal. Mídia registrada por uma sessão interrompida nunca é apagada automaticamente: `.partial.mp4` é movido para `*-recuperavel-<sessão>.mp4` e um temporário de exportação é movido para `*-export-recuperavel-<sessão>.<extensão>`. Se o rename falhar, o arquivo e o journal permanecem no local original para nova tentativa. Não apague arquivos recuperáveis antes de validar a reprodução. Para conversão externa falha, procure também `*-intermediario-<sessão>.mp4`.
 
 ## Diagnóstico para suporte
 
