@@ -75,4 +75,33 @@ public sealed class WindowSelectionTests
         Assert.Null(result);
         release.Set();
     }
+
+    [Fact]
+    public async Task Timed_out_captures_keep_their_slots_until_the_native_work_finishes()
+    {
+        var started = 0;
+        var threeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new ManualResetEventSlim();
+        var loader = new WindowThumbnailLoader((_, _, _) =>
+        {
+            if (Interlocked.Increment(ref started) == WindowThumbnailLoader.MaximumConcurrentCaptures)
+                threeStarted.TrySetResult();
+            release.Wait();
+            return null;
+        }, TimeSpan.FromMilliseconds(25));
+
+        var firstBatch = Enumerable.Range(0, WindowThumbnailLoader.MaximumConcurrentCaptures)
+            .Select(index => loader.CaptureAsync((nint)(index + 1), 180, 100, CancellationToken.None))
+            .ToArray();
+        await threeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(firstBatch);
+
+        var fourth = loader.CaptureAsync((nint)4, 180, 100, CancellationToken.None);
+        await Task.Delay(100);
+        Assert.Equal(WindowThumbnailLoader.MaximumConcurrentCaptures, Volatile.Read(ref started));
+
+        release.Set();
+        await fourth;
+        Assert.Equal(WindowThumbnailLoader.MaximumConcurrentCaptures + 1, Volatile.Read(ref started));
+    }
 }
