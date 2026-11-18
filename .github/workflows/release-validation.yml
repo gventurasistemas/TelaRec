@@ -1,0 +1,54 @@
+name: Release validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.428
+      - name: Restore
+        run: dotnet restore TelaRec.sln
+      - name: Test Debug
+        run: dotnet test TelaRec.sln --no-restore --configuration Debug --verbosity minimal
+      - name: Test Release
+        run: dotnet test TelaRec.sln --no-restore --configuration Release --verbosity minimal
+
+  package:
+    name: Portable package
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.428
+      - name: Publish, validate and package
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Publish-Portable.ps1
+      - name: Locate package
+        id: package
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem artifacts/portable -Recurse -Filter 'TelaRec-*-win-x64.zip' | Select-Object -First 1
+          if ($null -eq $zip) { throw 'ZIP portátil não foi produzido.' }
+          "directory=$($zip.Directory.FullName)" >> $env:GITHUB_OUTPUT
+      - name: Upload portable evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: TelaRec-portable-${{ github.sha }}
+          path: ${{ steps.package.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 14

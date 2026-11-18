@@ -31,3 +31,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Publish-Portable
 ```
 
 O último comando produz ZIP self-contained, manifesto, SHA-256, logs e prova de reprodutibilidade em `artifacts\portable`. Um usuário final não precisa do SDK nem do runtime .NET para usar o ZIP.
+
+O workflow versionado `.github/workflows/release-validation.yml` executa restore, testes Debug e Release, publicação portátil, manifesto, hash e validação de startup em cada pull request, push para `main` e tag SemVer. O smoke de mídia real continua opt-in porque requer sessão gráfica e dispositivos reais; seus artefatos e a matriz P25 são gates de homologação, não uma substituição pela CI hospedada.
