@@ -50,13 +50,14 @@ public partial class RegionOverlayWindow : Window
         _selection = null;
         SetHandlesVisibility(Visibility.Collapsed);
         Selection.Visibility = Visibility.Visible;
-        CaptureMouse();
+        // Os eventos de movimento e soltura devem continuar chegando ao Canvas.
+        Surface.CaptureMouse();
         UpdateSelectionFromDip(_start, _start);
     }
 
     private void Move(object sender, MouseEventArgs e)
     {
-        if (!_drawing || !IsMouseCaptured) return;
+        if (!_drawing || !Surface.IsMouseCaptured) return;
         UpdateSelectionFromDip(_start, e.GetPosition(Surface));
     }
 
@@ -64,7 +65,7 @@ public partial class RegionOverlayWindow : Window
     {
         if (!_drawing) return;
         _drawing = false;
-        ReleaseMouseCapture();
+        Surface.ReleaseMouseCapture();
         UpdateSelectionFromDip(_start, e.GetPosition(Surface));
         SetHandlesVisibility(_selection?.IsValid == true ? Visibility.Visible : Visibility.Collapsed);
     }

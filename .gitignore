@@ -72,6 +72,7 @@ project.lock.json
 *.nuget.targets
 
 # Ferramentas locais (não versionar binários)
+/ffmpeg/
 tools/ffmpeg.exe
 tools/ffprobe.exe
 tools/ffplay.exe

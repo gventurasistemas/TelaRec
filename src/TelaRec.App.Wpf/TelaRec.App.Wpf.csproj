@@ -14,6 +14,13 @@
     <Resource Include="Resources\TelaRec.ico" />
   </ItemGroup>
 
+  <!-- A build local do FFmpeg não entra no Git; ela acompanha cada publicação em tools. -->
+  <ItemGroup Condition="Exists('..\..\ffmpeg\bin\ffmpeg.exe')">
+    <Content Include="..\..\ffmpeg\bin\ffmpeg.exe" Link="tools\ffmpeg.exe" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ffmpeg\LICENSE" Link="tools\FFMPEG-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ffmpeg\README.txt" Link="tools\FFMPEG-BUILD-README.txt" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
@@ -27,5 +34,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources\TelaRec.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <Target Name="RequireFfmpegForPublish" BeforeTargets="CopyFilesToPublishDirectory"
+          Condition="!Exists('..\..\ffmpeg\bin\ffmpeg.exe')">
+    <Error Text="FFmpeg não encontrado em ..\..\ffmpeg\bin\ffmpeg.exe. Extraia a build local antes de publicar." />
+  </Target>
 
 </Project>

@@ -94,12 +94,12 @@ function Test-Manifest {
 function Test-PublishContents {
     param([string]$PublishDirectory, [string]$Version)
 
-    $required = @('TelaRec.App.Wpf.exe', 'TelaRec.App.Wpf.dll', 'TelaRec.App.Wpf.runtimeconfig.json', 'TelaRec.App.Wpf.deps.json', 'LICENSE', 'THIRD-PARTY-NOTICES.md')
+    $required = @('TelaRec.App.Wpf.exe', 'TelaRec.App.Wpf.dll', 'TelaRec.App.Wpf.runtimeconfig.json', 'TelaRec.App.Wpf.deps.json', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'tools\ffmpeg.exe', 'tools\FFMPEG-LICENSE.txt', 'tools\FFMPEG-BUILD-README.txt')
     foreach ($name in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $name) -PathType Leaf)) { throw "Arquivo obrigatório ausente: $name" }
     }
     $forbiddenExtensions = @('.pdb', '.cs', '.csproj', '.sln', '.user', '.suo')
-    $forbiddenNames = @('ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')
+    $forbiddenNames = @('ffprobe.exe', 'ffplay.exe')
     $unexpected = Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File | Where-Object {
         $forbiddenExtensions -contains $_.Extension.ToLowerInvariant() -or
         $forbiddenNames -contains $_.Name.ToLowerInvariant() -or

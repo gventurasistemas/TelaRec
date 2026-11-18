@@ -16,7 +16,7 @@ Cada gravação usa um `RecordingProfile`: contêiner, codec, bitrate, FPS e res
 - **MKV e MOV:** gravam primeiro o MP4 temporário nativo e o backend `FfmpegRecordingExporter` faz a conversão isolada para H.264 ou HEVC.
 - **GIF:** usa outro caminho de pós-processamento, limitado a 30 FPS, com `palettegen` e `paletteuse` para paleta de até 256 cores. Áudio não é incluído em GIF.
 
-MKV, MOV e GIF requerem `ffmpeg.exe`. O TelaRec verifica o executável, versão, encoders e filtros necessários **antes** de abrir a captura; sem capacidade compatível, informa a causa e sugere MP4 nativo sem criar sessão parcial. O pacote oficial não inclui nem baixa FFmpeg: obtenha-o de fonte confiável, revise sua licença e informe `TELAREC_FFMPEG_PATH` como caminho absoluto, ou coloque-o em `tools\\ffmpeg.exe` ao lado do aplicativo. Para impedir ambiguidade, o TelaRec não usa `PATH` como fallback.
+MKV, MOV e GIF requerem `ffmpeg.exe`. Em cada publicação, o projeto copia a build local de `ffmpeg\bin\ffmpeg.exe` para `tools\ffmpeg.exe`, com a licença e os dados da build no mesmo diretório. O TelaRec verifica o executável, versão, encoders e filtros necessários **antes** de abrir a captura; sem capacidade compatível, informa a causa e sugere MP4 nativo sem criar sessão parcial. Para impedir ambiguidade, o TelaRec não usa `PATH` como fallback.
 
 A conversão externa escreve primeiro um arquivo temporário no diretório de saída e só publica o destino após êxito. Se o FFmpeg falhar, o destino final não é criado e o MP4 intermediário é preservado com o sufixo `-intermediario-<sessão>.mp4` para recuperação manual.
 
@@ -109,7 +109,7 @@ Logs de execução são gravados em `%LOCALAPPDATA%\TelaRec\logs` (um arquivo po
 
 ## Decisão do encoder
 
-O MVP usa **Media Foundation**, disponível no Windows, para H.264, AAC e MP4. Isso dispensa a distribuição de binários FFmpeg e suas licenças no instalador. FFmpeg permanece candidato para contêineres e codecs extras. A conversão BGRA → NV12 é feita no processo; em resoluções e FPS elevados, o custo de CPU deve ser medido antes de definir presets mais exigentes.
+O MVP usa **Media Foundation**, disponível no Windows, para H.264, AAC e MP4. FFmpeg é incluído somente para contêineres e codecs extras; sua licença e os dados da build acompanham o executável em `tools`. A conversão BGRA → NV12 é feita no processo; em resoluções e FPS elevados, o custo de CPU deve ser medido antes de definir presets mais exigentes.
 
 ## Performance e jogos (Fase 6)
 
@@ -166,7 +166,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Publish-Portable
 
 Ele executa todos os testes, publica duas vezes com `PortableWinX64`, compara os manifestos SHA-256 para verificar reprodutibilidade, gera o ZIP com ordem/timestamp estáveis e valida o startup direto do `.exe` extraído com `DOTNET_ROOT` inválido. A saída fica em `artifacts\portable\TelaRec-<versão>-win-x64\` e contém o ZIP, `MANIFEST.sha256`, o hash do ZIP, `RELEASE.json` e logs de teste/publicação. O tamanho exato do pacote é exibido pelo script e deve ser registrado junto à release; ele varia com o runtime .NET e DLLs nativas do Windows.
 
-O script limpa exclusivamente sua própria pasta versionada sob `artifacts\portable`; ele valida o caminho antes de qualquer remoção e nunca atua recursivamente na raiz do repositório. Os manifestos descrevem os arquivos extraídos; o hash ao lado do ZIP valida o pacote publicado. `LICENSE` e `THIRD-PARTY-NOTICES.md` acompanham o ZIP e registram componentes efetivamente distribuídos. FFmpeg não acompanha a distribuição: MKV, MOV e GIF continuam exigindo `ffmpeg.exe` fornecido pelo usuário ao lado do aplicativo ou por `TELAREC_FFMPEG_PATH` absoluto.
+O script limpa exclusivamente sua própria pasta versionada sob `artifacts\portable`; ele valida o caminho antes de qualquer remoção e nunca atua recursivamente na raiz do repositório. Os manifestos descrevem os arquivos extraídos; o hash ao lado do ZIP valida o pacote publicado. `LICENSE`, `THIRD-PARTY-NOTICES.md` e `tools\FFMPEG-LICENSE.txt` acompanham o ZIP. A publicação exige `ffmpeg\bin\ffmpeg.exe` na raiz do repositório e o copia para `tools\ffmpeg.exe`.
 
 Checklist da máquina limpa: extraia o ZIP em um caminho com espaços sem privilégios administrativos; confirme que não há SDK/runtime .NET instalado; abra `TelaRec.App.Wpf.exe`; configure uma pasta de saída gravável; grave e reproduza um clipe H.264; feche e abra novamente. Repita para áudio e HEVC quando suportados pelo driver.
 
