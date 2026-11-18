@@ -304,7 +304,9 @@ public class RecordingServiceTests
             microphone.Emit(new AudioFrame(Samples(10_000, 10_000), 48_000, 2, TimeSpan.FromTicks(ticks)));
             await service.StopAsync();
 
-            Assert.Contains(encoder.AudioFrames, frame => BitConverter.ToInt16(frame.Pcm16, 0) == 20_000);
+            Assert.Contains(encoder.AudioFrames, frame =>
+                Enumerable.Range(0, frame.Pcm16.Length / sizeof(short))
+                    .Any(index => BitConverter.ToInt16(frame.Pcm16, index * sizeof(short)) == 20_000));
         }
         finally { Directory.Delete(folder, true); }
     }

@@ -10,10 +10,10 @@ namespace TelaRec.Infrastructure.Recording;
 public sealed class RecordingService : IRecordingService, IRecordingTelemetrySource, IAsyncDisposable
 {
     /// <summary>
-    /// A gravação preserva a ordem FIFO. Quando há pressão, os vídeos mais novos são
-    /// descartados antes de escalar/compor para reservar espaço aos pacotes de áudio.
+    /// A fila comporta a janela de reordenação de áudio sem permitir que ela ocupe a
+    /// reserva de vídeo. Quadros de vídeo continuam limitados por quantidade e bytes.
     /// </summary>
-    internal const int QueueCapacity = 8;
+    internal const int QueueCapacity = 64;
     internal const int VideoQueueHighWatermark = 6;
     internal const long MaximumQueuedVideoBytes = 64L * 1024 * 1024;
 
@@ -70,6 +70,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
     private long _queueLatencySamples;
     private long _managedAllocationStart;
     private int _queueDepth;
+    private int _queuedVideoPackets;
     private int _peakQueueDepth;
     private int _peakReorderQueueDepth;
     private long _queuedVideoBytes;
@@ -217,6 +218,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             lock (_queueMetricsSync)
             {
                 _queueDepth = 0;
+                _queuedVideoPackets = 0;
                 _peakQueueDepth = 0;
                 _peakReorderQueueDepth = 0;
                 _queuedVideoBytes = 0;
@@ -372,7 +374,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         if (_paused || _machine.State is not (RecordingState.Recording or RecordingState.Starting)) return;
         Interlocked.Increment(ref _receivedVideoFrames);
         var expectedBytes = _profile.Width * (long)_profile.Height * sizeof(uint);
-        if (Volatile.Read(ref _queueDepth) >= VideoQueueHighWatermark ||
+        if (Volatile.Read(ref _queuedVideoPackets) >= VideoQueueHighWatermark ||
             Interlocked.Read(ref _queuedVideoBytes) + expectedBytes > MaximumQueuedVideoBytes)
         {
             Interlocked.Increment(ref _queueDroppedVideoFrames);
@@ -402,13 +404,14 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             var writer = _queue?.Writer;
             var queueFull = _queueDepth >= QueueCapacity;
             var videoExceedsBudget = packet.Video is { } candidateVideo &&
-                (_queueDepth >= VideoQueueHighWatermark || _queuedVideoBytes + candidateVideo.Pixels.LongLength > MaximumQueuedVideoBytes);
+                (_queuedVideoPackets >= VideoQueueHighWatermark || _queuedVideoBytes + candidateVideo.Pixels.LongLength > MaximumQueuedVideoBytes);
             if (!queueFull && !videoExceedsBudget && writer is not null && writer.TryWrite(packet))
             {
                 _queueDepth++;
                 _peakQueueDepth = Math.Max(_peakQueueDepth, _queueDepth);
                 if (packet.Video is { } video)
                 {
+                    _queuedVideoPackets++;
                     _queuedVideoBytes += video.Pixels.LongLength;
                     _peakQueuedVideoBytes = Math.Max(_peakQueuedVideoBytes, _queuedVideoBytes);
                 }
@@ -455,11 +458,7 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                     videoEnd = packet.Video.Timestamp.Ticks + TimeSpan.TicksPerSecond / _fps;
                     videoStarted = true;
                     while (pending.Count > 0)
-                    {
-                        var dropped = pending.Dequeue();
-                        RecordDroppedPacket(dropped);
-                        ReleasePacket(dropped);
-                    }
+                        await WriteAsync(pending.Dequeue()).ConfigureAwait(false);
                     continue;
                 }
                 pending.Enqueue(packet, packet.Timestamp.Ticks);
@@ -475,6 +474,14 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             if (_audioMix.SystemEnabled && _audioMix.MicrophoneEnabled)
             {
                 _logger.LogInformation("Drift máximo entre sistema e microfone: {Drift}", audioMixer.MaxSourceDrift);
+                _logger.LogInformation(
+                    "Mixagem A/V: sistema={SystemFrames} amostras; microfone={MicrophoneFrames} amostras; saída={OutputFrames} amostras; baldes mistos={MixedBuckets}; baldes de fonte única={SingleSourceBuckets}; diferença inicial={InitialSkew}",
+                    audioMixer.SystemInputSampleFrames,
+                    audioMixer.MicrophoneInputSampleFrames,
+                    audioMixer.OutputSampleFrames,
+                    audioMixer.MixedBuckets,
+                    audioMixer.SingleSourceBuckets,
+                    audioMixer.InitialSourceSkew);
                 if (audioMixer.MaxSourceDrift >= TimeSpan.FromMilliseconds(100))
                     _diagnostics?.Report(DiagnosticSeverity.Warning, "audio.drift", $"Drift entre sistema e microfone: {audioMixer.MaxSourceDrift.TotalMilliseconds:F0} ms.");
             }
@@ -584,7 +591,10 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
         {
             if (_queueDepth > 0) _queueDepth--;
             if (packet.Video is { } video)
+            {
+                if (_queuedVideoPackets > 0) _queuedVideoPackets--;
                 _queuedVideoBytes = Math.Max(0, _queuedVideoBytes - video.Pixels.LongLength);
+            }
         }
     }
     private void RecordReorderQueueDepth(int depth)
