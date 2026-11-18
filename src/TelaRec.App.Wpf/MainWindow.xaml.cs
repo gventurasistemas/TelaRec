@@ -291,19 +291,13 @@ public partial class MainWindow : Window
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is not null) dialog.DialogResult = true; };
         dialog.ContentRendered += async (_, _) =>
         {
-            using var concurrency = new SemaphoreSlim(WindowThumbnailLoader.MaximumConcurrentCaptures);
             var token = thumbnailCancellation.Token;
             var loads = previewImages.Select(async item =>
             {
                 try
                 {
-                    await concurrency.WaitAsync(token);
-                    try
-                    {
-                        var source = await thumbnailLoader.CaptureAsync(item.Window.Handle, 180, 100, token);
-                        if (!token.IsCancellationRequested && dialog.IsVisible) item.Image.Source = source;
-                    }
-                    finally { concurrency.Release(); }
+                    var source = await thumbnailLoader.CaptureAsync(item.Window.Handle, 180, 100, token);
+                    if (!token.IsCancellationRequested && dialog.IsVisible) item.Image.Source = source;
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             });

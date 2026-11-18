@@ -134,6 +134,36 @@ public sealed class PipelinePerformanceTests
     }
 
     [Fact]
+    public async Task Audio_burst_does_not_consume_the_reserved_video_queue()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var capture = new BurstCapture();
+        var audio = new BurstAudio();
+        var encoder = new BlockingEncoder();
+        await using var service = new RecordingService(capture, encoder, audio, NullLogger<RecordingService>.Instance);
+        try
+        {
+            var profile = new RecordingProfile(RecordingContainer.Mp4, VideoCodec.H264, 1_000_000, 30, 2, 2);
+            await service.StartAsync(new RecordingRequest(Path.Combine(directory, "audio-pressure.mp4"), SystemAudioEnabled: true, Profile: profile));
+            await encoder.FirstEncodeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            audio.EmitMany(20);
+            capture.EmitMany(6);
+            var pressured = service.CurrentTelemetry;
+
+            Assert.InRange(pressured.QueueDroppedVideoFrames, 0, 1);
+            Assert.True(pressured.QueuedVideoBytes >= 5 * 16);
+            Assert.InRange(pressured.QueueDepth, 20, RecordingService.QueueCapacity);
+
+            var stop = service.StopAsync();
+            encoder.Release();
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Consumer_exception_transitions_to_failed_and_dispose_does_not_deadlock()
     {
         var directory = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
@@ -209,6 +239,21 @@ public sealed class PipelinePerformanceTests
         public event EventHandler<Exception>? CaptureFailed { add { } remove { } }
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class BurstAudio : IAudioCaptureService
+    {
+        public event EventHandler<AudioFrame>? AudioCaptured;
+        public event EventHandler<Exception>? CaptureFailed { add { } remove { } }
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void EmitMany(int count)
+        {
+            var origin = (long)(Stopwatch.GetTimestamp() * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+            for (var index = 0; index < count; index++)
+                AudioCaptured?.Invoke(this, new AudioFrame(new byte[1_920], 48_000, 2, TimeSpan.FromTicks(origin + index * TimeSpan.TicksPerSecond / 100)));
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

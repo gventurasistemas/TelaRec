@@ -70,6 +70,7 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
             try
             {
                 File.Delete(abandonedWrite);
+                removed++;
                 diagnostics.Add("Uma escrita incompleta do journal foi removida.");
             }
             catch (Exception exception)
@@ -85,15 +86,21 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
             try
             {
                 var entry = await ReadEntryAsync(path, cancellationToken).ConfigureAwait(false);
+                var preservationFailed = false;
                 if (entry is not null && IsOwnedTemporary(entry))
                 {
                     foreach (var temporaryPath in OwnedTemporaryPaths(entry))
                     {
                         if (!File.Exists(temporaryPath)) continue;
-                        File.Delete(temporaryPath);
-                        removed++;
+                        preservationFailed |= !TryPreserveTemporary(entry, temporaryPath, diagnostics);
                     }
-                    diagnostics.Add($"Sessão interrompida {entry.SessionId:N} recuperada.");
+                    if (preservationFailed)
+                    {
+                        diagnostics.Add($"A mídia da sessão interrompida {entry.SessionId:N} permaneceu no caminho original; o journal foi mantido para nova tentativa.");
+                        continue;
+                    }
+
+                    diagnostics.Add($"Sessão interrompida {entry.SessionId:N} recuperada sem apagar mídia.");
                     if (!string.IsNullOrWhiteSpace(entry.Error)) diagnostics.Add(entry.Error);
                 }
                 File.Delete(path);
@@ -117,6 +124,43 @@ public sealed class JsonRecordingSessionJournal : IRecordingSessionJournal
         var extension = Path.GetExtension(entry.OutputPath);
         if (!string.IsNullOrEmpty(extension))
             yield return Path.Combine(directory, $"{sourceStem}.export.partial{extension}");
+    }
+
+    private bool TryPreserveTemporary(RecordingJournalEntry entry, string temporaryPath, List<string> diagnostics)
+    {
+        var recoveryPath = GetRecoveryPath(entry, temporaryPath);
+        try
+        {
+            File.Move(temporaryPath, recoveryPath);
+            diagnostics.Add($"Mídia recuperável da sessão {entry.SessionId:N} preservada em {recoveryPath}.");
+            _logger.LogWarning("Sessão interrompida {SessionId} preservou mídia recuperável em {Path}", entry.SessionId, recoveryPath);
+            return true;
+        }
+        catch (IOException exception)
+        {
+            _logger.LogWarning(exception, "Não foi possível mover mídia recuperável da sessão {SessionId}; preservando em {Path}", entry.SessionId, temporaryPath);
+            return false;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            _logger.LogWarning(exception, "Sem permissão para mover mídia recuperável da sessão {SessionId}; preservando em {Path}", entry.SessionId, temporaryPath);
+            return false;
+        }
+    }
+
+    private static string GetRecoveryPath(RecordingJournalEntry entry, string temporaryPath)
+    {
+        var directory = Path.GetDirectoryName(temporaryPath)!;
+        var name = Path.GetFileNameWithoutExtension(entry.OutputPath);
+        var extension = Path.GetExtension(temporaryPath);
+        var kind = string.Equals(temporaryPath, entry.TemporaryPath, StringComparison.OrdinalIgnoreCase)
+            ? "recuperavel"
+            : "export-recuperavel";
+        var basePath = Path.Combine(directory, $"{name}-{kind}-{entry.SessionId:N}");
+        var candidate = basePath + extension;
+        var suffix = 1;
+        while (File.Exists(candidate)) candidate = $"{basePath}-{suffix++}{extension}";
+        return candidate;
     }
     private async Task WriteAsync(RecordingJournalEntry entry, CancellationToken token)
     {

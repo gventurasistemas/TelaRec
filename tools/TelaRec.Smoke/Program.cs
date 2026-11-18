@@ -42,7 +42,7 @@ var exitCode = Failure;
 object? observed = null;
 try
 {
-    log.Write($"Iniciando smoke de mídia: destino={options.OutputPath}; codec={options.Codec}; alvo={options.TargetMode}; timeout={options.Timeout}.");
+    log.Write($"Iniciando smoke de mídia: destino={options.OutputPath}; codec={options.Codec}; alvo={options.TargetMode}; duração={options.Duration}; timeout={options.Timeout}.");
     visual.Start(timeout.Token);
     if (options.TargetMode == SmokeTargetMode.Window)
         throw new InvalidOperationException("--window requer uma janela externa: a fonte visual determinística do smoke pertence ao próprio processo e é bloqueada para evitar auto-captura. Use --region ou --display.");

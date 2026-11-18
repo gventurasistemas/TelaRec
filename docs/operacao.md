@@ -11,7 +11,7 @@
 
 ## Recuperação
 
-Na abertura, o TelaRec recupera journals interrompidos e remove somente `.partial.mp4`, temporário de exportação associado e `.json.tmp` na pasta privada. Em uma falha de finalização, o MP4 é preservado como `*-recuperavel-<sessão>.mp4`; não o apague antes de validar a reprodução. Para conversão externa falha, procure também `*-intermediario-<sessão>.mp4`.
+Na abertura, o TelaRec remove somente escritas incompletas `.json.tmp` da pasta privada do journal. Mídia registrada por uma sessão interrompida nunca é apagada automaticamente: `.partial.mp4` é movido para `*-recuperavel-<sessão>.mp4` e um temporário de exportação é movido para `*-export-recuperavel-<sessão>.<extensão>`. Se o rename falhar, o arquivo e o journal permanecem no local original para nova tentativa. Não apague arquivos recuperáveis antes de validar a reprodução. Para conversão externa falha, procure também `*-intermediario-<sessão>.mp4`.
 
 ## Diagnóstico para suporte
 
@@ -31,3 +31,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Publish-Portable
 ```
 
 O último comando produz ZIP self-contained, manifesto, SHA-256, logs e prova de reprodutibilidade em `artifacts\portable`. Um usuário final não precisa do SDK nem do runtime .NET para usar o ZIP.
+
+O workflow versionado `.github/workflows/release-validation.yml` executa restore, testes Debug e Release, publicação portátil, manifesto, hash e validação de startup em cada pull request, push para `main` e tag SemVer. O smoke de mídia real continua opt-in porque requer sessão gráfica e dispositivos reais; seus artefatos e a matriz P25 são gates de homologação, não uma substituição pela CI hospedada.

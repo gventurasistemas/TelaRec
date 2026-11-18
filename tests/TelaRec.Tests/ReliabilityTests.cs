@@ -10,7 +10,7 @@ namespace TelaRec.Tests;
 public sealed class ReliabilityTests
 {
     [Fact]
-    public async Task Journal_recovers_only_registered_temporary_file()
+    public async Task Journal_preserves_registered_temporary_media_on_recovery()
     {
         var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -20,11 +20,15 @@ public sealed class ReliabilityTests
         var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, Path.Combine(root, "sessions"));
         try
         {
-            await journal.CreateAsync(new RecordingJournalEntry(Guid.NewGuid(), temporary, output, DateTimeOffset.UtcNow, RecordingState.Recording, null));
+            var sessionId = Guid.NewGuid();
+            await journal.CreateAsync(new RecordingJournalEntry(sessionId, temporary, output, DateTimeOffset.UtcNow, RecordingState.Recording, null));
             var result = await journal.RecoverAsync();
-            Assert.Equal(1, result.TemporaryFilesRemoved);
+
+            var recovered = Path.Combine(root, $"recording-recuperavel-{sessionId:N}.mp4");
+            Assert.Equal(0, result.TemporaryFilesRemoved);
             Assert.False(File.Exists(temporary));
-            Assert.Contains(result.Diagnostics, text => text.Contains("recuperada"));
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(recovered));
+            Assert.Contains(result.Diagnostics, text => text.Contains(recovered, StringComparison.Ordinal));
         }
         finally { Directory.Delete(root, true); }
     }
@@ -46,7 +50,7 @@ public sealed class ReliabilityTests
     }
 
     [Fact]
-    public async Task Journal_recovers_the_ffmpeg_temporary_file_owned_by_the_session()
+    public async Task Journal_preserves_ffmpeg_temporary_media_owned_by_the_session()
     {
         var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -58,13 +62,75 @@ public sealed class ReliabilityTests
         var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, Path.Combine(root, "sessions"));
         try
         {
-            await journal.CreateAsync(new RecordingJournalEntry(Guid.NewGuid(), temporary, output, DateTimeOffset.UtcNow, RecordingState.Stopping, null));
+            var sessionId = Guid.NewGuid();
+            await journal.CreateAsync(new RecordingJournalEntry(sessionId, temporary, output, DateTimeOffset.UtcNow, RecordingState.Stopping, null));
 
             var result = await journal.RecoverAsync();
 
-            Assert.Equal(2, result.TemporaryFilesRemoved);
+            Assert.Equal(0, result.TemporaryFilesRemoved);
             Assert.False(File.Exists(temporary));
             Assert.False(File.Exists(exporterTemporary));
+            Assert.True(File.Exists(Path.Combine(root, $"recording-recuperavel-{sessionId:N}.mp4")));
+            Assert.True(File.Exists(Path.Combine(root, $"recording-export-recuperavel-{sessionId:N}.mkv")));
+            Assert.Equal(2, result.Diagnostics.Count(message => message.Contains("Mídia recuperável", StringComparison.Ordinal)));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task Journal_never_overwrites_an_existing_recovered_media_file()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var temporary = Path.Combine(root, ".recording.partial.mp4");
+        var output = Path.Combine(root, "recording.mp4");
+        var sessionId = Guid.NewGuid();
+        var existing = Path.Combine(root, $"recording-recuperavel-{sessionId:N}.mp4");
+        await File.WriteAllBytesAsync(temporary, [1, 2, 3]);
+        await File.WriteAllBytesAsync(existing, [9, 8, 7]);
+        var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, Path.Combine(root, "sessions"));
+        try
+        {
+            await journal.CreateAsync(new RecordingJournalEntry(sessionId, temporary, output, DateTimeOffset.UtcNow, RecordingState.Recording, null));
+
+            await journal.RecoverAsync();
+
+            Assert.Equal(new byte[] { 9, 8, 7 }, await File.ReadAllBytesAsync(existing));
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(Path.Combine(root, $"recording-recuperavel-{sessionId:N}-1.mp4")));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task Journal_keeps_media_and_journal_when_recovery_rename_is_blocked()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "TelaRecJournalTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var temporary = Path.Combine(root, ".recording.partial.mp4");
+        var output = Path.Combine(root, "recording.mp4");
+        var sessionId = Guid.NewGuid();
+        await File.WriteAllBytesAsync(temporary, [1, 2, 3]);
+        var sessions = Path.Combine(root, "sessions");
+        var journal = new JsonRecordingSessionJournal(NullLogger<JsonRecordingSessionJournal>.Instance, sessions);
+        try
+        {
+            await journal.CreateAsync(new RecordingJournalEntry(sessionId, temporary, output, DateTimeOffset.UtcNow, RecordingState.Recording, null));
+
+            RecoveryResult firstRecovery;
+            await using (var lockFile = new FileStream(temporary, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                firstRecovery = await journal.RecoverAsync();
+                Assert.True(File.Exists(temporary));
+                Assert.Single(Directory.GetFiles(sessions, "*.json"));
+            }
+
+            Assert.Contains(firstRecovery.Diagnostics, message => message.Contains("journal foi mantido", StringComparison.Ordinal));
+
+            await journal.RecoverAsync();
+
+            Assert.False(File.Exists(temporary));
+            Assert.True(File.Exists(Path.Combine(root, $"recording-recuperavel-{sessionId:N}.mp4")));
+            Assert.Empty(Directory.GetFiles(sessions, "*.json"));
         }
         finally { Directory.Delete(root, true); }
     }
@@ -151,6 +217,7 @@ public sealed class ReliabilityTests
         {
             var result = await journal.RecoverAsync();
             Assert.False(File.Exists(staleWrite));
+            Assert.Equal(1, result.TemporaryFilesRemoved);
             Assert.Contains(result.Diagnostics, message => message.Contains("escrita incompleta"));
         }
         finally { Directory.Delete(root, true); }

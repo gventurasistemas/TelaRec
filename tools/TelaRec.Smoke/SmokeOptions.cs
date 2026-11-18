@@ -8,22 +8,21 @@ internal sealed record SmokeOptions(
     bool SystemAudio,
     bool Microphone,
     bool Silent,
-    bool Short,
+    TimeSpan Duration,
     bool ClickEffects,
     bool Cursor,
     SmokeTargetMode TargetMode,
     VideoCodec Codec,
     TimeSpan Timeout)
 {
-    public TimeSpan Duration => Short ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(5);
-
     public static SmokeOptions Parse(string[] args)
     {
         string? output = null;
         for (var index = 0; index < args.Length; index++)
         {
             if (string.Equals(args[index], "--codec", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(args[index], "--timeout-seconds", StringComparison.OrdinalIgnoreCase))
+                string.Equals(args[index], "--timeout-seconds", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(args[index], "--duration-seconds", StringComparison.OrdinalIgnoreCase))
             {
                 index++;
                 continue;
@@ -36,7 +35,9 @@ internal sealed record SmokeOptions(
         }
         output ??= Path.Combine(Path.GetTempPath(), "TelaRec-smoke.mp4");
         var codec = ReadEnum(args, "--codec", VideoCodec.H264);
-        var timeoutSeconds = ReadInt(args, "--timeout-seconds", 30, 5, 300);
+        var durationSeconds = ReadInt(args, "--duration-seconds",
+            args.Contains("--short", StringComparer.OrdinalIgnoreCase) ? 2 : 5, 1, 3_600);
+        var timeoutSeconds = ReadInt(args, "--timeout-seconds", Math.Max(30, durationSeconds + 30), 5, 7_200);
         var target = args.Contains("--window", StringComparer.OrdinalIgnoreCase) ? SmokeTargetMode.Window
             : args.Contains("--display", StringComparer.OrdinalIgnoreCase) ? SmokeTargetMode.Display
             : SmokeTargetMode.Region;
@@ -46,7 +47,7 @@ internal sealed record SmokeOptions(
             args.Contains("--audio", StringComparer.OrdinalIgnoreCase),
             args.Contains("--microphone", StringComparer.OrdinalIgnoreCase),
             args.Contains("--silent", StringComparer.OrdinalIgnoreCase),
-            args.Contains("--short", StringComparer.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(durationSeconds),
             args.Contains("--click-effects", StringComparer.OrdinalIgnoreCase),
             !args.Contains("--cursor-off", StringComparer.OrdinalIgnoreCase),
             target,
