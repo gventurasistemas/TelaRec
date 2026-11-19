@@ -101,9 +101,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         ];
         QualityOptions =
         [
+            new("Muito Alta", Strings.QualityVeryHigh),
             new("Alta", Strings.QualityHigh),
             new("Média", Strings.QualityMedium),
-            new("Baixa", Strings.QualityLow)
+            new("Baixa", Strings.QualityLow),
+            new("Econômica", Strings.QualityEconomy)
         ];
         AudioSourceOptions =
         [
@@ -588,7 +590,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             _settings.Quality = value;
             OnPropertyChanged();
             if (_applyingPreset) return;
-            RecalculateBitrate();
+            if (RecordingQualityProfiles.TryGet(value, out var profile))
+            {
+                _settings.OutputWidth = profile.Width;
+                _settings.OutputHeight = profile.Height;
+                _settings.FramesPerSecond = profile.FramesPerSecond;
+                _settings.VideoBitrate = profile.SuggestedBitrate;
+                OnPropertyChanged(nameof(OutputResolution));
+                OnPropertyChanged(nameof(FramesPerSecond));
+                OnPropertyChanged(nameof(VideoBitrate));
+                NotifyFormatSummary();
+                ValidateFramesPerSecond();
+                ValidateVideoBitrate();
+                ValidateResolution();
+            }
+            else RecalculateBitrate();
             MarkCustomPreset();
         }
     }
