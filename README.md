@@ -1,6 +1,6 @@
 # TelaRec
 
-Gravador de tela Windows x64 feito em C#/.NET 8 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
+Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
 
 ## Licença e contribuições
 
@@ -140,7 +140,7 @@ Consulte também [arquitetura e pipeline](docs/arquitetura.md), [operação e su
 
 ## Executar do código-fonte
 
-Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 8 SDK e sessão interativa de desktop. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela. O aplicativo é configurado para `win-x64`; o SDK Windows 10.0.26100 instalado nesta máquina é usado para gerar as projeções WinRT, mantendo a versão mínima suportada em 19041.
+Requer Windows 10 versão 2004 (build 19041) ou posterior, x64, .NET 10 SDK e sessão interativa de desktop. O `global.json` usa 10.0.100 como base e aceita faixas posteriores do SDK 10. A versão 2004 é necessária porque o `Direct3D11CaptureFramePool.CreateFreeThreaded`, usado pela captura WGC, só existe a partir dela. O aplicativo é configurado para `win-x64`; o SDK Windows 10.0.26100 instalado nesta máquina é usado para gerar as projeções WinRT, mantendo a versão mínima suportada em 19041.
 
 ```powershell
 dotnet restore TelaRec.sln

@@ -3,10 +3,10 @@
 ## Contexto técnico
 - Este diretório é a raiz Git e contém `TelaRec.sln`; execute os comandos a partir daqui.
 - Gravador de tela desktop Windows x64 em .NET 8 e WPF, com apresentação MVVM.
-- `global.json` fixa SDK 8.0.428 com `rollForward: latestPatch`.
+- `global.json` usa SDK 10.0.100 como base com `rollForward: latestFeature`.
 - C# 12 por padrão do target .NET 8; não há `LangVersion` explícita nos projetos.
 - Nullable e implicit usings habilitados; configurações da solution: Debug/Release, x64.
-- Core usa `net8.0`; App, Infrastructure e testes usam `net8.0-windows10.0.26100.0`.
+- Core usa `net10.0`; App, Infrastructure e testes usam `net10.0-windows10.0.26100.0`.
 - Windows mínimo declarado: build 19041; aplicativo distribuído como `win-x64`.
 
 ## Mapa e dependências
