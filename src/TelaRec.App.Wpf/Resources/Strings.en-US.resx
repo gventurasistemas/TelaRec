@@ -80,8 +80,10 @@
   <data name="Quality"><value>Quality</value></data>
   <data name="QualityHint"><value>Changing quality recalculates the suggested bitrate. You can still edit it manually.</value></data>
   <data name="QualityHigh"><value>High</value></data>
+  <data name="QualityVeryHigh"><value>Very high</value></data>
   <data name="QualityMedium"><value>Medium</value></data>
   <data name="QualityLow"><value>Low</value></data>
+  <data name="QualityEconomy"><value>Economy</value></data>
   <data name="SectionVideo"><value>Video</value></data>
   <data name="SectionAudio"><value>Audio</value></data>
   <data name="SectionOverlays"><value>Overlays</value></data>

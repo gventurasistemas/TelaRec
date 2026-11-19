@@ -92,8 +92,10 @@ public static class Strings
     public static string Quality => Get(nameof(Quality));
     public static string QualityHint => Get(nameof(QualityHint));
     public static string QualityHigh => Get(nameof(QualityHigh));
+    public static string QualityVeryHigh => Get(nameof(QualityVeryHigh));
     public static string QualityMedium => Get(nameof(QualityMedium));
     public static string QualityLow => Get(nameof(QualityLow));
+    public static string QualityEconomy => Get(nameof(QualityEconomy));
     public static string SectionVideo => Get(nameof(SectionVideo));
     public static string SectionAudio => Get(nameof(SectionAudio));
     public static string SectionOverlays => Get(nameof(SectionOverlays));

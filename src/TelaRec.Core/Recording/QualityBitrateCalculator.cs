@@ -15,9 +15,11 @@ public static class QualityBitrateCalculator
         var fps = Math.Clamp(framesPerSecond, 1, 120);
         var bitsPerPixel = Normalize(quality) switch
         {
+            "muito alta" or "very high" => 0.18,
             "alta" or "high" => 0.12,
             "media" or "medium" => 0.07,
             "baixa" or "low" => 0.04,
+            "economica" or "economy" => 0.025,
             _ => 0.07
         };
 

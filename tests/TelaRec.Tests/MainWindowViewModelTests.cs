@@ -179,7 +179,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task Changing_quality_recalculates_the_suggested_bitrate()
+    public async Task Changing_quality_applies_the_complete_recording_profile()
     {
         var directory = NewDirectory();
         try
@@ -189,7 +189,9 @@ public sealed class MainWindowViewModelTests
 
             viewModel.Quality = "Baixa";
 
-            Assert.Equal(QualityBitrateCalculator.Suggest("Baixa", 1920, 1080, 60), viewModel.VideoBitrate);
+            Assert.Equal("1280×720", viewModel.OutputResolution);
+            Assert.Equal(30, viewModel.FramesPerSecond);
+            Assert.Equal(QualityBitrateCalculator.Suggest("Baixa", 1280, 720, 30), viewModel.VideoBitrate);
             Assert.Equal(MainWindowViewModel.CustomPresetId, viewModel.SelectedPreset);
         }
         finally { Directory.Delete(directory, true); }
