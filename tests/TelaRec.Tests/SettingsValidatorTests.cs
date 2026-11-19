@@ -42,14 +42,13 @@ public sealed class SettingsValidatorTests
     }
 
     [Fact]
-    public void Accepts_odd_dimensions_for_gif()
+    public void Rejects_gif_recording_profile()
     {
         var settings = Valid();
         settings.RecordingContainer = RecordingContainer.Gif;
         settings.VideoCodec = VideoCodec.Gif;
-        settings.OutputWidth = 641;
-        settings.OutputHeight = 481;
-        Assert.Empty(SettingsValidator.Validate(settings, verifyOutputDirectory: false));
+        Assert.Contains(SettingsValidator.Validate(settings, verifyOutputDirectory: false),
+            issue => issue.Code == SettingsValidationCode.ProfileNotSupported);
     }
 
     [Fact]

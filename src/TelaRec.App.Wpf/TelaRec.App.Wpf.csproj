@@ -16,9 +16,9 @@
 
   <!-- A build local do FFmpeg não entra no Git; ela acompanha cada publicação em tools. -->
   <ItemGroup Condition="Exists('..\..\ffmpeg\bin\ffmpeg.exe')">
-    <Content Include="..\..\ffmpeg\bin\ffmpeg.exe" Link="tools\ffmpeg.exe" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\ffmpeg\LICENSE" Link="tools\FFMPEG-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\ffmpeg\README.txt" Link="tools\FFMPEG-BUILD-README.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ffmpeg\bin\ffmpeg.exe" Link="tools\ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ffmpeg\LICENSE" Link="tools\FFMPEG-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ffmpeg\README.txt" Link="tools\FFMPEG-BUILD-README.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

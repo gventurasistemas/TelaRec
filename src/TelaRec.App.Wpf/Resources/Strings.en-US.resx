@@ -57,7 +57,15 @@
   <data name="ClickEffects"><value>Click effects</value></data>
   <data name="EnableClickEffects"><value>Highlight clicks</value></data>
   <data name="Format"><value>Format</value></data>
-  <data name="FormatDependencyHint"><value>MP4 uses native Windows components. MKV, MOV, and GIF require configured FFmpeg and are checked before recording.</value></data>
+  <data name="FormatDependencyHint"><value>MP4 uses native Windows components. MKV and MOV require configured FFmpeg and are checked before recording.</value></data>
+  <data name="ConvertGif"><value>Convert to GIF</value></data>
+  <data name="ConvertGifTooltip"><value>Choose a video to convert to GIF.</value></data>
+  <data name="ConvertGifDropHint"><value>or drop a video • limit:</value></data>
+  <data name="Megabytes"><value>MB</value></data>
+  <data name="GifConversionComplete"><value>GIF created: {0}</value></data>
+  <data name="GifConversionFailed"><value>Could not convert to GIF: {0}</value></data>
+  <data name="GifConversionUnavailable"><value>GIF conversion is unavailable.</value></data>
+  <data name="GifRecordingMigrated"><value>The legacy GIF recording option was changed to MP4. Use Convert to GIF after recording.</value></data>
   <data name="Resolution"><value>Resolution</value></data>
   <data name="Bitrate"><value>Bitrate (bps)</value></data>
   <data name="Codec"><value>Codec</value></data>

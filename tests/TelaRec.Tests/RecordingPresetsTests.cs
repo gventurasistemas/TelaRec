@@ -5,6 +5,16 @@ namespace TelaRec.Tests;
 public sealed class RecordingPresetsTests
 {
     [Fact]
+    public void New_installation_defaults_to_the_high_quality_60_fps_preset()
+    {
+        var settings = new TelaRecSettings();
+
+        Assert.Equal("high-quality-60", settings.SelectedPreset);
+        Assert.Equal(60, settings.FramesPerSecond);
+        Assert.Equal(15_000_000, settings.VideoBitrate);
+    }
+
+    [Fact]
     public void Contains_three_named_presets() => Assert.Equal(3, RecordingPresets.All.Count);
 
     [Fact]

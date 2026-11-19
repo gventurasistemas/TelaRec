@@ -93,8 +93,7 @@ public static class SettingsValidator
             issues.Add(new(SettingsValidationCode.ResolutionOutOfRange, "A resolução deve ter largura e altura positivas."));
             profileIssues++;
         }
-        else if (settings.RecordingContainer != RecordingContainer.Gif &&
-                 (settings.OutputWidth % 2 != 0 || settings.OutputHeight % 2 != 0))
+        else if (settings.OutputWidth % 2 != 0 || settings.OutputHeight % 2 != 0)
         {
             issues.Add(new(SettingsValidationCode.ResolutionMustBeEven, "A resolução deve ter largura e altura pares para este formato."));
             profileIssues++;
@@ -102,7 +101,13 @@ public static class SettingsValidator
 
         if (profileIssues > 0) return;
 
-        var codec = settings.RecordingContainer == RecordingContainer.Gif ? VideoCodec.Gif : settings.VideoCodec;
+        if (settings.RecordingContainer == RecordingContainer.Gif || settings.VideoCodec == VideoCodec.Gif)
+        {
+            issues.Add(new(SettingsValidationCode.ProfileNotSupported, "GIF é gerado pela conversão de um vídeo existente; selecione um formato de vídeo para gravar."));
+            return;
+        }
+
+        var codec = settings.VideoCodec;
         var profile = new RecordingProfile(
             settings.RecordingContainer,
             codec,

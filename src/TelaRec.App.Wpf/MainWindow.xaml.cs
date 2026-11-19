@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
+using Microsoft.Win32;
 using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
 using TelaRec.App.Wpf.Infrastructure;
@@ -115,6 +117,29 @@ public partial class MainWindow : Window
 
     private void OnNotificationRequested(object? sender, NotificationMessage message)
         => ShowBalloon(message.Title, message.Body, message.IsError ? ToolTipIcon.Error : ToolTipIcon.Info);
+
+    private async void OnChooseGifVideo(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Strings.ConvertGif,
+            Filter = "Vídeos|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.wmv|Todos os arquivos|*.*",
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) == true) await _viewModel.ConvertVideoToGifAsync(dialog.FileName);
+    }
+
+    private void OnGifVideoDragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop) ? System.Windows.DragDropEffects.Copy : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnGifVideoDrop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] { Length: > 0 } paths) return;
+        await _viewModel.ConvertVideoToGifAsync(paths[0]);
+    }
 
     private void ShowBalloon(string title, string body, ToolTipIcon icon)
     {

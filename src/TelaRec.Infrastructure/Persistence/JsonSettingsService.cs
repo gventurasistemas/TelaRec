@@ -131,7 +131,9 @@ public sealed class JsonSettingsService : ISettingsService
             if (persistedSchema > PersistenceSchemas.Settings)
                 throw new UnsupportedSettingsSchemaException($"Schema de configurações {persistedSchema} é mais novo que o suportado ({PersistenceSchemas.Settings}). Restaure o backup com uma versão compatível do TelaRec.");
 
-            var migrated = persistedSchema < PersistenceSchemas.Settings || settings.PresetSchemaVersion < PersistenceSchemas.Presets;
+            var needsPresetMigration = settings.PresetSchemaVersion < PersistenceSchemas.Presets;
+            if (needsPresetMigration) UpgradeLegacyDefaultVideoProfile(settings);
+            var migrated = persistedSchema < PersistenceSchemas.Settings || needsPresetMigration;
             settings.SchemaVersion = PersistenceSchemas.Settings;
             settings.PresetSchemaVersion = PersistenceSchemas.Presets;
             return new LoadedSettings(settings, migrated);
@@ -149,5 +151,22 @@ public sealed class JsonSettingsService : ISettingsService
             _logger.LogWarning(exception, "Falha ao ler configurações de {SettingsPath}", path);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Atualiza somente o perfil que correspondia exatamente ao padrão antigo. Configurações
+    /// personalizadas, inclusive 1080p/30 FPS escolhidas conscientemente, continuam intactas.
+    /// </summary>
+    private static void UpgradeLegacyDefaultVideoProfile(TelaRecSettings settings)
+    {
+        if (!string.Equals(settings.SelectedPreset, "tutorial-1080p", StringComparison.Ordinal) ||
+            settings.OutputWidth != 1920 || settings.OutputHeight != 1080 ||
+            settings.FramesPerSecond != 30 || settings.VideoBitrate != 8_000_000 ||
+            !string.Equals(settings.Quality, "Alta", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        settings.SelectedPreset = "high-quality-60";
+        settings.FramesPerSecond = 60;
+        settings.VideoBitrate = 15_000_000;
     }
 }

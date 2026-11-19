@@ -9,6 +9,52 @@ namespace TelaRec.Tests;
 
 public class RecordingServiceTests
 {
+    [Theory]
+    [InlineData(RecordingContainer.Mkv, VideoCodec.H264, 800, 450)]
+    [InlineData(RecordingContainer.Mov, VideoCodec.Hevc, 800, 450)]
+    public async Task External_formats_capture_native_mp4_then_export_requested_profile(
+        RecordingContainer container, VideoCodec codec, int width, int height)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "TelaRecTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var profile = new RecordingProfile(container, codec, 2_000_000, 15, width, height);
+        var encoder = new FakeEncoder();
+        var audio = new FakeAudio();
+        var exporter = new SuccessfulExporter();
+        await using var service = new RecordingService(new FakeCapture(), encoder, audio,
+            NullLogger<RecordingService>.Instance, new SingleExporterFactory(exporter));
+        var output = Path.Combine(folder, "clip" + profile.FileExtension);
+        try
+        {
+            await service.StartAsync(new RecordingRequest(output, Profile: profile, SystemAudioEnabled: true));
+            var native = encoder.LastRequest!.EffectiveProfile;
+            Assert.Equal(RecordingContainer.Mp4, native.Container);
+            Assert.Equal(codec, native.VideoCodec);
+            Assert.True(native.IsValid);
+            Assert.Equal(width + width % 2, native.Width);
+            Assert.Equal(height + height % 2, native.Height);
+            Assert.Equal(profile.FramesPerSecond, native.FramesPerSecond);
+            Assert.True(encoder.LastRequest.EffectiveAudioMix.HasEnabledSource);
+            await service.StopAsync();
+            Assert.Equal(profile, exporter.Profile);
+            Assert.Equal(RecordingState.Completed, service.Status.State);
+            Assert.Equal([output], Directory.GetFiles(folder));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    private sealed class SuccessfulExporter : IRecordingExporter
+    {
+        public RecordingProfile? Profile { get; private set; }
+        public bool CanExport(RecordingProfile profile) => true;
+        public Task ExportAsync(string sourcePath, string destinationPath, RecordingProfile profile, CancellationToken cancellationToken = default)
+        {
+            Profile = profile;
+            File.Copy(sourcePath, destinationPath);
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public async Task StartPauseResumeStopAndRestartProduceOnlyFinalFiles()
     {
@@ -400,6 +446,8 @@ public class RecordingServiceTests
             LastRequest = request;
             if (request.EffectiveProfile.VideoCodec == UnsupportedCodec)
                 throw new NotSupportedException("HEVC não está disponível. Selecione H.264.");
+            if (request.EffectiveProfile.Container != RecordingContainer.Mp4 || request.EffectiveProfile.VideoCodec == VideoCodec.Gif)
+                throw new NotSupportedException("O encoder nativo aceita apenas MP4 com H.264 ou HEVC.");
             if (FailOnStart) throw new InvalidOperationException("Encoder indisponível");
             _path = request.OutputPath;
             if (CreateFileOnStart) File.WriteAllBytes(_path, [1, 2, 3]);

@@ -133,6 +133,46 @@ public sealed class JsonSettingsServiceTests
     }
 
     [Fact]
+    public async Task Previous_default_video_profile_is_upgraded_to_high_quality_60_fps()
+    {
+        var directory = NewDirectory();
+        var path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                { "SchemaVersion": 1, "PresetSchemaVersion": 1, "SelectedPreset": "tutorial-1080p", "OutputWidth": 1920, "OutputHeight": 1080, "FramesPerSecond": 30, "VideoBitrate": 8000000, "Quality": "Alta" }
+                """);
+
+            var settings = await CreateService(path).LoadAsync();
+
+            Assert.Equal("high-quality-60", settings.SelectedPreset);
+            Assert.Equal(60, settings.FramesPerSecond);
+            Assert.Equal(15_000_000, settings.VideoBitrate);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Previous_custom_video_profile_is_not_changed_by_preset_migration()
+    {
+        var directory = NewDirectory();
+        var path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                { "SchemaVersion": 1, "PresetSchemaVersion": 1, "SelectedPreset": "tutorial-1080p", "OutputWidth": 1920, "OutputHeight": 1080, "FramesPerSecond": 30, "VideoBitrate": 12000000, "Quality": "Alta" }
+                """);
+
+            var settings = await CreateService(path).LoadAsync();
+
+            Assert.Equal("tutorial-1080p", settings.SelectedPreset);
+            Assert.Equal(30, settings.FramesPerSecond);
+            Assert.Equal(12_000_000, settings.VideoBitrate);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Newer_settings_schema_is_preserved_and_compatible_backup_is_used()
     {
         var directory = NewDirectory();

@@ -18,7 +18,7 @@ Na abertura, o TelaRec remove somente escritas incompletas `.json.tmp` da pasta 
 1. Abra **Sobre** e copie versão/commit; não envie o caminho do perfil Windows.
 2. Abra **Diagnósticos** e anote código, horário e mensagem.
 3. Anexe somente o trecho necessário de `%LOCALAPPDATA%\TelaRec\logs` e, se houver, o arquivo recuperável.
-4. Para MKV/MOV/GIF, confirme a presença de `tools\ffmpeg.exe` e registre a versão exibida em Diagnósticos; não envie binários de origem desconhecida.
+4. Para MKV/MOV e para a conversão explícita de vídeo em GIF, confirme a presença de `tools\ffmpeg.exe` e registre a versão exibida em Diagnósticos; não envie binários de origem desconhecida.
 
 ## Publicação e validação
 
