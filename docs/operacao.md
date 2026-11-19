@@ -22,7 +22,7 @@ Na abertura, o TelaRec remove somente escritas incompletas `.json.tmp` da pasta 
 
 ## Publicação e validação
 
-Na raiz do clone limpo com .NET SDK 8.0.428 e Windows 10 2004+:
+Na raiz do clone limpo com .NET SDK 10.0.100 ou uma faixa posterior do SDK 10 e Windows 10 2004+:
 
 ```powershell
 dotnet restore TelaRec.sln
