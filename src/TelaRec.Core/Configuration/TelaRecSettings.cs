@@ -13,7 +13,7 @@ public sealed class TelaRecSettings
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
         "TelaRec");
 
-    public int FramesPerSecond { get; set; } = 30;
+    public int FramesPerSecond { get; set; } = 60;
 
     public bool SystemAudioEnabled { get; set; } = true;
     public bool MicrophoneEnabled { get; set; }
@@ -35,13 +35,14 @@ public sealed class TelaRecSettings
     public double ClickEffectDurationSeconds { get; set; } = 0.6;
     public double ClickEffectRadius { get; set; } = 28;
     public string ClickEffectColor { get; set; } = "#FF3B30";
-    public string SelectedPreset { get; set; } = "tutorial-1080p";
+    public string SelectedPreset { get; set; } = "high-quality-60";
     public RecordingContainer RecordingContainer { get; set; } = RecordingContainer.Mp4;
     public VideoCodec VideoCodec { get; set; } = VideoCodec.H264;
     public VideoEncoderAcceleration EncoderAcceleration { get; set; } = VideoEncoderAcceleration.Auto;
-    public int VideoBitrate { get; set; } = 8_000_000;
+    public int VideoBitrate { get; set; } = 15_000_000;
     public int OutputWidth { get; set; } = 1920;
     public int OutputHeight { get; set; } = 1080;
+    public int MaximumGifSizeMegabytes { get; set; } = 25;
     public WatermarkSettings Watermark { get; set; } = new();
     public WebcamOverlaySettings Webcam { get; set; } = new();
 }

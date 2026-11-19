@@ -39,6 +39,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     private readonly IScreenshotService _screenshotService;
     private readonly IMicrophoneCaptureService? _microphoneCapture;
     private readonly IVideoEncoderCapabilitiesService? _encoderCapabilitiesService;
+    private readonly IGifConversionService? _gifConversionService;
     private readonly IRecordingTelemetrySource? _recordingTelemetry;
     private readonly ReleaseIdentity _releaseIdentity;
     private readonly Dictionary<Guid, ScheduledRecording> _scheduleRules = new();
@@ -72,7 +73,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         IMicrophoneCaptureService? microphoneCapture = null,
         IVideoEncoderCapabilitiesService? encoderCapabilitiesService = null,
         IRecordingTelemetrySource? recordingTelemetry = null,
-        ReleaseIdentity? releaseIdentity = null)
+        ReleaseIdentity? releaseIdentity = null,
+        IGifConversionService? gifConversionService = null)
     {
         _settingsService = settingsService;
         _recordingService = recordingService;
@@ -84,6 +86,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _microphoneCapture = microphoneCapture;
         _encoderCapabilitiesService = encoderCapabilitiesService;
         _recordingTelemetry = recordingTelemetry;
+        _gifConversionService = gifConversionService;
         _releaseIdentity = releaseIdentity ?? ReleaseIdentity.FromAssembly(typeof(MainWindowViewModel).Assembly);
 
         PresetOptions = RecordingPresets.All
@@ -136,7 +139,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
 
         SaveSettingsCommand = new RelayCommand(async () => await SaveSettingsAsync());
         OpenOutputDirectoryCommand = new RelayCommand(OpenOutputDirectory, () => Directory.Exists(OutputDirectory));
-        StartRecordingCommand = new RelayCommand(async () => await StartRecordingAsync(), () => _recordingService.Status.State is RecordingState.Idle or RecordingState.Completed or RecordingState.Failed);
+        StartRecordingCommand = new RelayCommand(async () => await StartRecordingAsync(), CanStartRecording);
         PauseRecordingCommand = new RelayCommand(async () => await PauseRecordingAsync(), () => _recordingService.Status.State == RecordingState.Recording);
         ResumeRecordingCommand = new RelayCommand(async () => await ResumeRecordingAsync(), () => _recordingService.Status.State == RecordingState.Paused);
         StopRecordingCommand = new RelayCommand(async () => await StopRecordingAsync(), () => _recordingService.Status.State is RecordingState.Recording or RecordingState.Paused);
@@ -485,8 +488,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
             if (_settings.RecordingContainer == container) return;
             _settings.RecordingContainer = container;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(FramesPerSecond));
+            OnPropertyChanged(nameof(AudioStatusText));
             NotifyFormatSummary();
             ValidateResolution();
+            ValidateFramesPerSecond();
+            MarkCustomPreset();
+        }
+    }
+
+    public int MaximumGifSizeMegabytes
+    {
+        get => _settings.MaximumGifSizeMegabytes;
+        set
+        {
+            var normalized = Math.Clamp(value, 1, 500);
+            if (_settings.MaximumGifSizeMegabytes == normalized) return;
+            _settings.MaximumGifSizeMegabytes = normalized;
+            OnPropertyChanged();
         }
     }
 
@@ -521,13 +540,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public string FormatSummary =>
         $"{OutputFormat} • {CodecSummary} • {_settings.OutputWidth}×{_settings.OutputHeight} • {_settings.FramesPerSecond} {Strings.FpsLabel}";
 
-    private string CodecSummary => _settings.RecordingContainer == RecordingContainer.Gif
-        ? "GIF"
-        : _settings.VideoCodec switch
+    private string CodecSummary => _settings.VideoCodec switch
         {
             VideoCodec.H264 => "H.264",
             VideoCodec.Hevc => "HEVC",
-            VideoCodec.Gif => "GIF",
             _ => _settings.VideoCodec.ToString().ToUpperInvariant()
         };
 
@@ -692,8 +708,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         string[] errors;
         if (_settings.OutputWidth <= 0 || _settings.OutputHeight <= 0)
             errors = [Strings.ValidationResolutionOutOfRange];
-        else if (_settings.RecordingContainer != RecordingContainer.Gif &&
-                 (_settings.OutputWidth % 2 != 0 || _settings.OutputHeight % 2 != 0))
+        else if (_settings.OutputWidth % 2 != 0 || _settings.OutputHeight % 2 != 0)
             errors = [Strings.ValidationResolutionMustBeEven];
         else if (BuildProfile().IsValid)
             errors = [];
@@ -732,6 +747,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
     public async Task LoadAsync()
     {
         _settings = await _settingsService.LoadAsync();
+        _settings.MaximumGifSizeMegabytes = Math.Clamp(_settings.MaximumGifSizeMegabytes, 1, 500);
+        if (_settings.RecordingContainer == RecordingContainer.Gif || _settings.VideoCodec == VideoCodec.Gif)
+        {
+            _settings.RecordingContainer = RecordingContainer.Mp4;
+            _settings.VideoCodec = VideoCodec.H264;
+            _diagnostics.Report(DiagnosticSeverity.Information, "gif.recording_migrated", Strings.GifRecordingMigrated);
+        }
         await _scheduler.InitializeAsync();
         foreach (var rule in _scheduler.ScheduledRules)
         {
@@ -758,6 +780,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         OnPropertyChanged(nameof(ShowClickEffects));
         OnPropertyChanged(nameof(CloseToTray));
         OnPropertyChanged(nameof(OutputFormat));
+        OnPropertyChanged(nameof(MaximumGifSizeMegabytes));
         if (_settings.VideoCodec == VideoCodec.Hevc && !EncoderCapabilities.HevcSupported)
         {
             _diagnostics.Report(DiagnosticSeverity.Warning, "encoder.hevc_unavailable", Strings.HevcUnavailable);
@@ -911,6 +934,31 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         {
             _logger.LogError(exception, "Falha ao iniciar a gravação");
             StatusMessage = string.Format(Strings.RecordingFailed, exception.Message);
+        }
+    }
+
+    internal async Task ConvertVideoToGifAsync(string sourcePath)
+    {
+        if (_gifConversionService is null)
+        {
+            StatusMessage = Strings.GifConversionUnavailable;
+            return;
+        }
+
+        try
+        {
+            var result = await _gifConversionService.ConvertAsync(new GifConversionRequest(
+                sourcePath,
+                MaximumGifSizeMegabytes * 1024L * 1024L));
+            StatusMessage = string.Format(Strings.GifConversionComplete, Path.GetFileName(result.OutputPath));
+            DiagnosticsText = result.OutputPath;
+            _diagnostics.Report(DiagnosticSeverity.Information, "gif.converted", StatusMessage);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Falha ao converter vídeo para GIF: {SourcePath}", sourcePath);
+            StatusMessage = string.Format(Strings.GifConversionFailed, exception.Message);
+            _diagnostics.Report(DiagnosticSeverity.Warning, "gif.conversion_failed", StatusMessage);
         }
     }
 
@@ -1080,7 +1128,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
 
     private RecordingProfile BuildProfile() => new(
         _settings.RecordingContainer,
-        _settings.RecordingContainer == RecordingContainer.Gif ? VideoCodec.Gif : _settings.VideoCodec,
+        _settings.VideoCodec,
         _settings.VideoBitrate,
         _settings.FramesPerSecond,
         _settings.OutputWidth,
@@ -1128,6 +1176,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, INotifyDataErr
         _settings.MicrophoneGain,
         _settings.SystemAudioMuted,
         _settings.MicrophoneMuted);
+
+    private bool CanStartRecording() =>
+        _recordingService.Status.State is RecordingState.Idle or RecordingState.Completed or RecordingState.Failed;
+
 
     private void RefreshMicrophoneDevices()
     {

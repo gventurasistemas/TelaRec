@@ -4,7 +4,7 @@ namespace TelaRec.Core.Configuration;
 public static class PersistenceSchemas
 {
     public const int Settings = 1;
-    public const int Presets = 1;
+    public const int Presets = 2;
     public const int Schedules = 1;
     public const int Journal = 1;
 }

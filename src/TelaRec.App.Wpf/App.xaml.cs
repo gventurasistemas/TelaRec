@@ -46,6 +46,7 @@ public partial class App : Application
             services.AddSingleton<IWebcamCaptureService, OpenCvWebcamCaptureService>();
             services.AddSingleton<IRecordingExporter, FfmpegRecordingExporter>();
             services.AddSingleton<IRecordingExporterFactory, RecordingExporterFactory>();
+            services.AddSingleton<IGifConversionService, GifConversionService>();
             services.AddSingleton<IAudioCaptureService, WasapiLoopbackAudioCaptureService>();
             services.AddSingleton<IMicrophoneCaptureService, WasapiMicrophoneCaptureService>();
             services.AddSingleton<IScreenshotService, ScreenshotService>();

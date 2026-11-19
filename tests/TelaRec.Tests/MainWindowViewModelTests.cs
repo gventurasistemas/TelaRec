@@ -189,7 +189,7 @@ public sealed class MainWindowViewModelTests
 
             viewModel.Quality = "Baixa";
 
-            Assert.Equal(QualityBitrateCalculator.Suggest("Baixa", 1920, 1080, 30), viewModel.VideoBitrate);
+            Assert.Equal(QualityBitrateCalculator.Suggest("Baixa", 1920, 1080, 60), viewModel.VideoBitrate);
             Assert.Equal(MainWindowViewModel.CustomPresetId, viewModel.SelectedPreset);
         }
         finally { Directory.Delete(directory, true); }
@@ -267,11 +267,31 @@ public sealed class MainWindowViewModelTests
             var viewModel = CreateViewModel(new FakeSettingsService(directory), new FakeRecordingService(), new FakeAvailabilityProbe(new RecordingAvailability(true)));
             await viewModel.LoadAsync();
 
-            Assert.Contains("MP4 • H.264 • 1920×1080 • 30 FPS", viewModel.FormatSummary);
+            Assert.Contains("MP4 • H.264 • 1920×1080 • 60 FPS", viewModel.FormatSummary);
 
-            viewModel.OutputFormat = "GIF";
+            viewModel.OutputFormat = "MKV";
             viewModel.FramesPerSecond = 60;
-            Assert.Contains("GIF • GIF • 1920×1080 • 60 FPS", viewModel.FormatSummary);
+            Assert.Contains("MKV • H.264 • 1920×1080 • 60 FPS", viewModel.FormatSummary);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Gif_conversion_uses_the_configured_output_limit()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var converter = new FakeGifConversionService();
+            var viewModel = CreateViewModel(new FakeSettingsService(directory), new FakeRecordingService(), new FakeAvailabilityProbe(new RecordingAvailability(true)), gifConverter: converter);
+            await viewModel.LoadAsync();
+            viewModel.MaximumGifSizeMegabytes = 42;
+
+            await viewModel.ConvertVideoToGifAsync(Path.Combine(directory, "recording.mp4"));
+
+            Assert.NotNull(converter.Request);
+            Assert.Equal(42L * 1024 * 1024, converter.Request!.MaximumOutputBytes);
+            Assert.Contains("GIF criado", viewModel.StatusMessage);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -553,9 +573,10 @@ public sealed class MainWindowViewModelTests
         IRecordingDiagnostics? diagnostics = null,
         IRecordingScheduler? scheduler = null,
         IMicrophoneCaptureService? microphone = null,
-        IVideoEncoderCapabilitiesService? encoderCapabilities = null) =>
+        IVideoEncoderCapabilitiesService? encoderCapabilities = null,
+        IGifConversionService? gifConverter = null) =>
         new(settings, recording, scheduler ?? new FakeScheduler(), diagnostics ?? new SilentDiagnostics(), availability,
-            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone, encoderCapabilities);
+            screenshot ?? new FakeScreenshotService(), NullLogger<MainWindowViewModel>.Instance, microphone, encoderCapabilities, null, null, gifConverter);
 
     private static string NewDirectory()
     {
@@ -682,6 +703,17 @@ public sealed class MainWindowViewModelTests
             LastScope = scope;
             IReadOnlyList<string> paths = [Path.Combine(outputDirectory, "shot.png")];
             return Task.FromResult(paths);
+        }
+    }
+
+    private sealed class FakeGifConversionService : IGifConversionService
+    {
+        public GifConversionRequest? Request { get; private set; }
+
+        public Task<GifConversionResult> ConvertAsync(GifConversionRequest request, CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            return Task.FromResult(new GifConversionResult(Path.ChangeExtension(request.SourcePath, ".gif"), 1024));
         }
     }
 

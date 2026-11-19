@@ -7,6 +7,7 @@ namespace TelaRec.Tests;
 public sealed class FfmpegRecordingExporterTests
 {
     private static readonly RecordingProfile H264Mkv = new(RecordingContainer.Mkv, VideoCodec.H264, 1_000_000, 30, 640, 480);
+    private static readonly RecordingProfile Gif = new(RecordingContainer.Gif, VideoCodec.Gif, 1_000_000, 15, 640, 480);
 
     [Fact]
     public async Task Preflight_reports_missing_ffmpeg_without_falling_back_to_path()
@@ -74,6 +75,45 @@ public sealed class FfmpegRecordingExporterTests
 
             Assert.False(result.IsAvailable);
             Assert.Contains("libx264", result.Message);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Preflight_checks_gif_filters_directly_without_listing_all_filters()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var executable = Path.Combine(directory, "ffmpeg.exe");
+            await File.WriteAllBytesAsync(executable, []);
+            var runner = new FakeRunner();
+            var exporter = CreateExporter(runner, executable, directory);
+
+            var result = await exporter.CheckAvailabilityAsync(Gif);
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(
+                ["-hide_banner -version", "-hide_banner -h filter=palettegen", "-hide_banner -h filter=paletteuse"],
+                runner.Calls);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Preflight_rejects_gif_when_a_required_filter_is_unavailable()
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var executable = Path.Combine(directory, "ffmpeg.exe");
+            await File.WriteAllBytesAsync(executable, []);
+            var exporter = CreateExporter(new FakeRunner { PaletteFilterExitCode = 1 }, executable, directory);
+
+            var result = await exporter.CheckAvailabilityAsync(Gif);
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains("palettegen", result.Message);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -204,10 +244,13 @@ public sealed class FfmpegRecordingExporterTests
     {
         public List<string> Calls { get; } = [];
         public string Encoders { get; init; } = " V..... libx264\n A..... aac";
+        public int PaletteFilterExitCode { get; init; }
 
         public Task<FfmpegProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
         {
             Calls.Add(string.Join(' ', arguments));
+            if (arguments.Contains("filter=palettegen") || arguments.Contains("filter=paletteuse"))
+                return Task.FromResult(new FfmpegProcessResult(PaletteFilterExitCode, string.Empty, string.Empty, false));
             var output = arguments.Contains("-version") ? "ffmpeg version test" : arguments.Contains("-encoders") ? Encoders : " palettegen\n paletteuse";
             return Task.FromResult(new FfmpegProcessResult(0, output, string.Empty, false));
         }

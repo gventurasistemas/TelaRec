@@ -17,6 +17,6 @@ App/WPF ── requests/settings ──► Core contracts and rules
 2. O serviço central limita filas, escala e compõe cursor, cliques, webcam e marca d’água.
 3. WASAPI normaliza e mistura sistema/microfone em PCM16 48 kHz estéreo.
 4. Media Foundation grava MP4 parcial com H.264/HEVC e AAC.
-5. A finalização publica o MP4 ou delega MKV/MOV/GIF ao FFmpeg pré-validado.
+5. A finalização publica o MP4 ou delega MKV/MOV ao FFmpeg pré-validado; GIF é convertido separadamente a partir de um vídeo existente.
 
 Erros de finalização preservam mídia recuperável e registram diagnóstico. O journal só remove caminhos temporários que pertencem comprovadamente à sessão.

@@ -14,7 +14,7 @@ Cada gravação usa um `RecordingProfile`: contêiner, codec, bitrate, FPS e res
 
 - **MP4 / H.264 ou HEVC:** gerado nativamente por Media Foundation quando o codec estiver disponível no Windows.
 - **MKV e MOV:** gravam primeiro o MP4 temporário nativo e o backend `FfmpegRecordingExporter` faz a conversão isolada para H.264 ou HEVC.
-- **GIF:** usa outro caminho de pós-processamento, limitado a 30 FPS, com `palettegen` e `paletteuse` para paleta de até 256 cores. Áudio não é incluído em GIF.
+- **GIF:** é gerado somente a partir de um vídeo existente, escolhido no seletor ou arrastado para **Converter para GIF**. A conversão usa `palettegen` e `paletteuse`, é limitada a 30 FPS e só publica o resultado se ele respeitar o limite de tamanho configurado (25 MB por padrão).
 
 MKV, MOV e GIF requerem `ffmpeg.exe`. Em cada publicação, o projeto copia a build local de `ffmpeg\bin\ffmpeg.exe` para `tools\ffmpeg.exe`, com a licença e os dados da build no mesmo diretório. O TelaRec verifica o executável, versão, encoders e filtros necessários **antes** de abrir a captura; sem capacidade compatível, informa a causa e sugere MP4 nativo sem criar sessão parcial. Para impedir ambiguidade, o TelaRec não usa `PATH` como fallback.
 
@@ -76,7 +76,7 @@ Os atalhos globais são configuráveis na aba Configurações e aplicados sem re
 - **Pausar/retomar** (`Ctrl+Alt+P`): alterna entre pausar e retomar.
 - **Capturar tela** (`Ctrl+Alt+S`): salva o PNG.
 
-O parser em `TelaRec.Core.Input.HotkeyGesture` aceita combinações como `Ctrl+Alt+Shift+F9`. Se outro programa já usa a combinação, `RegisterHotKey` falha e o TelaRec mostra a mensagem de conflito no status e nos diagnósticos, mantendo o restante dos atalhos funcionando. O cabeçalho acompanha contêiner, codec, resolução e FPS selecionados (por exemplo, `MKV • H.264 • 1920×1080 • 30 FPS` ou `GIF • GIF • 1280×720 • 30 FPS`).
+O parser em `TelaRec.Core.Input.HotkeyGesture` aceita combinações como `Ctrl+Alt+Shift+F9`. Se outro programa já usa a combinação, `RegisterHotKey` falha e o TelaRec mostra a mensagem de conflito no status e nos diagnósticos, mantendo o restante dos atalhos funcionando. O cabeçalho acompanha contêiner, codec, resolução e FPS selecionados (por exemplo, `MKV • H.264 • 1920×1080 • 30 FPS`).
 
 ## Interface, internacionalização e agendamento (P05)
 
@@ -105,7 +105,7 @@ Logs de execução são gravados em `%LOCALAPPDATA%\TelaRec\logs` (um arquivo po
 3. `WasapiLoopbackAudioCaptureService` e `WasapiMicrophoneCaptureService` capturam as fontes WASAPI escolhidas. O reamostrador compartilhado normaliza PCM/float para PCM16, 48 kHz e dois canais, preservando a continuidade entre blocos. `TimestampedAudioMixer` compensa a latência inicial, aplica ganho/mute/clipping e entrega uma única linha de áudio ao encoder. A fila também preenche lacunas sem dados com silêncio.
 4. `RecordingService` centraliza áudio e vídeo em um `Channel` FIFO limitado a 8 pacotes, com uma fila de reordenação igualmente limitada. Os seis primeiros slots podem receber vídeo; os dois restantes preservam margem para áudio. Há ainda orçamento de 64 MiB para pixels BGRA pendentes, incluindo o quadro em codificação. Sob pressão, o próximo vídeo é descartado antes de escalar ou compor; a ordem e os timestamps dos itens aceitos não mudam. Todo descarte de vídeo ou áudio é contado e registrado nos Diagnósticos e no log final.
 5. `MediaFoundationVideoEncoderService` converte BGRA para NV12 usando buffer temporário alugado, devolvido ao pool somente após a cópia síncrona para o buffer nativo, e escreve H.264/HEVC e AAC com `IMFSinkWriter`. O throttling do Sink Writer é desabilitado para não atrasar a drenagem da fila após parar. Os timestamps e durações do Media Foundation usam unidades de 100 ns, iguais aos ticks de `TimeSpan`.
-6. Após a finalização do MP4 temporário, `FfmpegRecordingExporter` produz MKV, MOV ou GIF quando o perfil pede esses formatos.
+6. Após a finalização do MP4 temporário, `FfmpegRecordingExporter` produz MKV ou MOV quando o perfil pede esses formatos. GIF é uma conversão explícita de um vídeo existente.
 
 ## Decisão do encoder
 

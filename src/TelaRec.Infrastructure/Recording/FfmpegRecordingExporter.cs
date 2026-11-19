@@ -46,8 +46,9 @@ public sealed class FfmpegRecordingExporter : IRecordingExporter, IRecordingExpo
 
             if (profile.Container == RecordingContainer.Gif)
             {
-                var filters = await _processRunner.RunAsync(resolved.Path, ["-hide_banner", "-filters"], ProbeTimeout, cancellationToken).ConfigureAwait(false);
-                if (filters.ExitCode != 0 || !filters.StandardOutput.Contains("palettegen", StringComparison.OrdinalIgnoreCase) || !filters.StandardOutput.Contains("paletteuse", StringComparison.OrdinalIgnoreCase))
+                var paletteGenerator = await _processRunner.RunAsync(resolved.Path, ["-hide_banner", "-h", "filter=palettegen"], ProbeTimeout, cancellationToken).ConfigureAwait(false);
+                var paletteUser = await _processRunner.RunAsync(resolved.Path, ["-hide_banner", "-h", "filter=paletteuse"], ProbeTimeout, cancellationToken).ConfigureAwait(false);
+                if (paletteGenerator.ExitCode != 0 || paletteUser.ExitCode != 0)
                     return RecordingExportPreflightResult.Unavailable($"FFmpeg em '{resolved.Path}' não oferece os filtros palettegen e paletteuse exigidos para GIF.");
             }
             else

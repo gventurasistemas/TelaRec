@@ -173,6 +173,8 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
                 throw new InvalidOperationException("Já existe uma gravação em andamento.");
             _profile = request.EffectiveProfile;
             if (!_profile.IsValid) throw new ArgumentException("Perfil de gravação inválido.", nameof(request));
+            if (_profile.Container == RecordingContainer.Gif || _profile.VideoCodec == VideoCodec.Gif)
+                throw new NotSupportedException("A gravação direta em GIF não é suportada. Grave um vídeo e use Converter para GIF.");
             if (!string.Equals(Path.GetExtension(request.OutputPath), _profile.FileExtension, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException($"A saída deve usar a extensão {_profile.FileExtension}.", nameof(request));
             if (_profile.Container != RecordingContainer.Mp4 && _exporters is null)
@@ -232,7 +234,15 @@ public sealed class RecordingService : IRecordingService, IRecordingTelemetrySou
             _fps = _profile.FramesPerSecond;
             _originTicks = NowTicks();
             _composer.Configure(request.EffectiveOverlays);
-            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = _profile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = _profile }, cancellationToken).ConfigureAwait(false);
+            // Capture to a native MP4 first; keep the requested profile for final export.
+            var captureProfile = _profile with
+            {
+                Container = RecordingContainer.Mp4,
+                VideoCodec = _profile.VideoCodec == VideoCodec.Gif ? VideoCodec.H264 : _profile.VideoCodec,
+                Width = _profile.Width + _profile.Width % 2,
+                Height = _profile.Height + _profile.Height % 2
+            };
+            await _encoder.StartAsync(request with { OutputPath = _temporaryPath, FramesPerSecond = captureProfile.FramesPerSecond, SystemAudioEnabled = _audioEnabled, AudioMix = _audioEnabled ? _audioMix : AudioMixSettings.None, Profile = captureProfile }, cancellationToken).ConfigureAwait(false);
             _encodeTask = Task.Run(() => EncodeLoopAsync(_queue.Reader), CancellationToken.None);
             await _capture.StartAsync(request, cancellationToken).ConfigureAwait(false);
             _composer.SetClickEffectContext(_capture.CaptureBounds);
