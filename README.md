@@ -4,6 +4,24 @@ Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em portugu
 
 [⬇️ Baixar FFmpeg Essentials (Windows x64)](https://github.com/GyanD/codexffmpeg/releases/download/2026-11-16-git-d35e13b9e0/ffmpeg-2026-11-16-git-d35e13b9e0-essentials_build.zip)
 
+### Instalação do FFmpeg para desenvolvimento
+
+1. Baixe o ZIP acima e extraia-o.
+2. Na raiz deste repositório, crie a pasta `ffmpeg`.
+3. Copie **o conteúdo extraído** para ela, para que a estrutura fique assim:
+
+```text
+TelaRec/
+└── ffmpeg/
+    ├── bin/ffmpeg.exe
+    ├── doc/
+    ├── presets/
+    ├── LICENSE
+    └── README.txt
+```
+
+Não deixe uma pasta intermediária, como `ffmpeg\ffmpeg-2026-...\bin`; o publicador procura diretamente por `ffmpeg\bin\ffmpeg.exe`.
+
 ## Autor
 
 **Gelson Ventura Gomes** — [@gventurasistemas](https://github.com/gventurasistemas)
