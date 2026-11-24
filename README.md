@@ -2,6 +2,8 @@
 
 Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
 
+[⬇️ Baixar o TelaRec](https://github.com/gventurasistemas/TelaRec/releases/latest)
+
 ## Autor
 
 **Gelson Ventura Gomes** — [@gventurasistemas](https://github.com/gventurasistemas)
