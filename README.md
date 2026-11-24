@@ -2,7 +2,7 @@
 
 Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
 
-[⬇️ Baixar o TelaRec](https://github.com/gventurasistemas/TelaRec/releases/latest)
+[⬇️ Baixar FFmpeg Essentials (Windows x64)](https://github.com/GyanD/codexffmpeg/releases/download/2026-11-16-git-d35e13b9e0/ffmpeg-2026-11-16-git-d35e13b9e0-essentials_build.zip)
 
 ## Autor
 
