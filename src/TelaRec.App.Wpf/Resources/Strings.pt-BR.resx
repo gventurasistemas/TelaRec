@@ -2,6 +2,7 @@
 <root>
   <data name="AppTitle"><value>TelaRec</value></data>
   <data name="ScreenRecorder"><value>Gravador de tela</value></data>
+  <data name="AuthorCredit"><value>Autor: Gelson Ventura Gomes</value></data>
   <data name="Recording"><value>Gravação</value></data>
   <data name="Settings"><value>Configurações</value></data>
   <data name="Schedules"><value>Agendamentos</value></data>

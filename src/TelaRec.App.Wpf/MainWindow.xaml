@@ -189,6 +189,7 @@
                 <TextBlock Text="TelaRec" FontSize="28" FontWeight="SemiBold" Foreground="#F7F8FA" />
             </StackPanel>
             <TextBlock Text="{resources:Loc Key=ScreenRecorder}" Margin="0,4,0,0" FontSize="14" Foreground="#AAB4C3" />
+            <TextBlock Text="{resources:Loc Key=AuthorCredit}" Margin="0,2,0,0" FontSize="10" Foreground="#6F7B8F" />
         </StackPanel>
 
         <Border Grid.Row="1" Margin="0,16,0,12" Padding="18" Background="#1B2230" CornerRadius="12">

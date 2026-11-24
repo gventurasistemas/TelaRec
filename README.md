@@ -2,6 +2,18 @@
 
 Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
 
+## Autor
+
+**Gelson Ventura Gomes** — [@gventurasistemas](https://github.com/gventurasistemas)
+
+## Capturas de tela
+
+| Visão geral | Configuração |
+| --- | --- |
+| ![Tela principal do TelaRec](docs/screenshots/01-visao-geral.png) | ![Configurações de captura do TelaRec](docs/screenshots/02-configuracao.png) |
+
+![Ações de gravação do TelaRec](docs/screenshots/03-acoes.png)
+
 ## Licença e contribuições
 
 O TelaRec é distribuído gratuitamente sob a [Licença MIT](LICENSE). Você pode usar, estudar, modificar e redistribuir o código, inclusive em projetos comerciais, desde que mantenha o aviso de copyright e o texto da licença.

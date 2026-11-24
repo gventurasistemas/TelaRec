@@ -2,6 +2,7 @@
 <root>
   <data name="AppTitle"><value>TelaRec</value></data>
   <data name="ScreenRecorder"><value>Screen recorder</value></data>
+  <data name="AuthorCredit"><value>Author: Gelson Ventura Gomes</value></data>
   <data name="Recording"><value>Recording</value></data>
   <data name="Settings"><value>Settings</value></data>
   <data name="Schedules"><value>Schedules</value></data>
