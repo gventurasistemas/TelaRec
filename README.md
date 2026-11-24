@@ -2,6 +2,8 @@
 
 Gravador de tela Windows x64 feito em C#/.NET 10 e WPF, com interface em português-BR. A solution separa interface MVVM, Core, integrações Windows e testes.
 
+Para utilizar o recurso de conversão de vídeos para GIF, é necessário instalar o FFmpeg. Utilize o link abaixo para realizar o download e siga as instruções de configuração.
+
 [⬇️ Baixar FFmpeg Essentials (Windows x64)](https://github.com/GyanD/codexffmpeg/releases/download/2026-11-16-git-d35e13b9e0/ffmpeg-2026-11-16-git-d35e13b9e0-essentials_build.zip)
 
 ### Instalação do FFmpeg para desenvolvimento
